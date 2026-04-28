@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/admin/" />
+    <title>Arron Portfolio Admin</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body class="admin-page">
+    <header class="site-header">
+      <nav class="nav-shell" aria-label="Admin navigation">
+        <a href="../index.html" class="brand">Arron<span>.</span></a>
+        <a href="../index.html" class="pill-button nav-mail">View Site</a>
+      </nav>
+    </header>
+
+    <main class="admin-shell">
+      <section class="admin-hero">
+        <div>
+          <h1>Portfolio Admin</h1>
+          <p>Edit site copy, stats, Google Drive links, portrait photos, and app icons stored in Firebase.</p>
+        </div>
+        <p class="status-line" id="saveStatus" role="status"></p>
+      </section>
+
+      <div class="admin-alert" id="configAlert">
+        Firebase is not configured yet. Add your Firebase project keys in firebase.js before saving or uploading.
+      </div>
+
+      <form id="adminForm" class="admin-grid">
+        <section class="admin-card" aria-labelledby="heroEditorTitle">
+          <h2 id="heroEditorTitle">Hero Content</h2>
+          <div class="form-grid two">
+            <label class="field">
+              <span>Brand</span>
+              <input id="heroBrand" type="text" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input id="heroEmail" type="email" autocomplete="email" />
+            </label>
+            <label class="field">
+              <span>First Name</span>
+              <input id="heroFirstName" type="text" autocomplete="given-name" />
+            </label>
+            <label class="field">
+              <span>Last Name</span>
+              <input id="heroLastName" type="text" autocomplete="family-name" />
+            </label>
+            <label class="field">
+              <span>Role</span>
+              <input id="heroRole" type="text" />
+            </label>
+            <label class="field">
+              <span>Availability</span>
+              <input id="heroAvailability" type="text" />
+            </label>
+            <label class="field">
+              <span>Profile Caption</span>
+              <input id="profileCaption" type="text" />
+            </label>
+            <label class="field">
+              <span>Subtitle</span>
+              <textarea id="heroSubtitle"></textarea>
+            </label>
+          </div>
+          <div class="upload-row admin-upload-row">
+            <div class="profile-preview" id="profilePreview">AA</div>
+            <label class="field upload-field">
+              <span>Upload Portrait Profile Photo</span>
+              <input id="profileUpload" type="file" accept="image/*" />
+            </label>
+            <button class="admin-button secondary" type="button" id="uploadProfileButton">Upload Profile</button>
+          </div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="statsEditorTitle">
+          <h2 id="statsEditorTitle">Stats</h2>
+          <p class="admin-help">
+            Edit the number, suffix, label text, and optional link for each stat card.
+          </p>
+          <div class="editor-list" id="statsEditor"></div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="featuredEditorTitle">
+          <h2 id="featuredEditorTitle">Featured Work</h2>
+          <div class="form-grid">
+            <label class="field">
+              <span>Section Heading</span>
+              <input id="featuredHeading" type="text" />
+            </label>
+            <label class="field">
+              <span>Section Subtitle</span>
+              <input id="featuredSubtitle" type="text" />
+            </label>
+          </div>
+          <div class="editor-list editor-list-spaced" id="featuredEditor"></div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="aboutEditorTitle">
+          <h2 id="aboutEditorTitle">About</h2>
+          <div class="form-grid">
+            <label class="field">
+              <span>Heading</span>
+              <input id="aboutHeading" type="text" />
+            </label>
+            <label class="field">
+              <span>Paragraphs</span>
+              <textarea id="aboutParagraphsInput" placeholder="Separate paragraphs with a blank line"></textarea>
+            </label>
+            <div class="editor-row-header">
+              <span>Skill Chips</span>
+              <button class="admin-button secondary" type="button" id="addSkillButton">Add Skill</button>
+            </div>
+            <div class="editor-list skill-editor-list" id="skillsEditor"></div>
+          </div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="timelineEditorTitle">
+          <div class="editor-row-header">
+            <h2 id="timelineEditorTitle" class="compact-title">Journey / Timeline</h2>
+            <button class="admin-button secondary" type="button" id="addTimelineButton">Add Journey Line</button>
+          </div>
+          <label class="field admin-heading-field">
+            <span>Journey Heading</span>
+            <input id="journeyHeading" type="text" />
+          </label>
+          <div class="editor-list timeline-editor-list" id="timelineEditor"></div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="contactEditorTitle">
+          <h2 id="contactEditorTitle">Contact Section</h2>
+          <div class="form-grid">
+            <label class="field">
+              <span>Heading</span>
+              <input id="contactHeading" type="text" />
+            </label>
+            <label class="field">
+              <span>Copy</span>
+              <textarea id="contactCopy"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="carouselEditorTitle">
+          <h2 id="carouselEditorTitle">Carousel Images</h2>
+          <div class="form-grid two">
+            <label class="field">
+              <span>Carousel Heading</span>
+              <input id="carouselHeading" type="text" />
+            </label>
+          </div>
+          <div class="upload-row">
+            <label class="field upload-field">
+              <span>Upload Portrait Carousel Photos</span>
+              <input id="carouselUpload" type="file" accept="image/*" multiple />
+            </label>
+            <button class="admin-button secondary" type="button" id="uploadCarouselButton">Upload Images</button>
+          </div>
+          <div class="carousel-admin-list" id="carouselAdminList"></div>
+        </section>
+
+        <section class="admin-card" aria-labelledby="toolsEditorTitle">
+          <div class="editor-row-header">
+            <h2 id="toolsEditorTitle" class="compact-title">App Icons</h2>
+            <button class="admin-button secondary" type="button" id="addToolButton">Add Icon Slot</button>
+          </div>
+          <p class="admin-help">
+            Upload your own app logos. Add as many icon slots as you need, then set optional links for each logo.
+          </p>
+          <div class="editor-list tools-editor-list" id="toolsEditor"></div>
+        </section>
+
+        <div class="admin-actions">
+          <button class="admin-button secondary" type="button" id="resetButton">Reload Firebase Data</button>
+          <button class="admin-button" type="submit">Save Changes</button>
+        </div>
+      </form>
+    </main>
+
+    <script type="module" src="admin.js"></script>
+  </body>
+</html>
