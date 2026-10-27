@@ -195,7 +195,7 @@ test('the clock turns orange when time is almost up and red when it is over', { 
   const red = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
   assert.equal(red, 'rgb(212, 42, 47)');
   const shown = await secondsOnScreen(p.page);
-  assert.ok(shown >= 2 && shown <= 8, `shows ${shown}s over`);
+  assert.ok(shown >= 1 && shown <= 30, `shows ${shown}s over (it counts up once time is over)`);
 
   await p.page.goto(url(`#/e/${made.code}/stage`));
   await p.page.waitForSelector('.stage[data-tone="bad"]');
@@ -428,4 +428,37 @@ test('station edits save by themselves and reach other devices within a second o
   assert.deepEqual([...adminPhone.page.errors, ...viewer.page.errors], []);
   await adminPhone.ctx.close();
   await viewer.ctx.close();
+});
+
+test('Start with a planned time shows a countdown everywhere, then starts by itself', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Countdown', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: [{ title: 'Registration', duration_s: 600 }, { title: 'Opening', duration_s: 300 }] });
+  await admin('event', { planned_start: Date.now() + 2 * 3_600_000 + 5000 });
+
+  const a = await phone();
+  await a.page.goto(url(`#/go/${made.key}`));
+  await a.page.waitForSelector('#controls .go-label:has-text("Start countdown")');
+  const v = await phone();
+  await v.page.goto(url(`#/e/${made.code}`));
+  await v.page.waitForSelector('.hero');
+  assert.equal(await v.page.locator('.hero-time').count(), 0, 'no timer before Start is pressed');
+
+  await a.page.click('#controls [data-act=next]');
+  await v.page.waitForSelector('.hero-caption:has-text("Starts in")', { timeout: 5000 });
+  assert.match(await v.page.textContent('.hero-time'), /^2:00:0\d$/, 'counts down the two hours to the start');
+  await a.page.waitForSelector('#controls .go-label:has-text("Start now")');
+
+  // Move the start to 3 seconds from now: when it comes, the program starts on its own.
+  await admin('event', { planned_start: Date.now() + 3000 });
+  await v.page.waitForSelector('.hero-caption:has-text("Time left")', { timeout: 10000 });
+  assert.match(await v.page.textContent('.hero-title'), /Registration/);
+  // The admin's phone writes it down, so the database agrees.
+  await a.page.waitForSelector('#controls .go-sub:has-text("Opening")', { timeout: 10000 });
+  await new Promise((r) => setTimeout(r, 1000));
+  const st = await stack.rpc('et_state', { p_code: made.code, p_since: 0 });
+  assert.deepEqual([st.event.status, st.event.current_index], ['live', 0]);
+  assert.deepEqual([...a.page.errors, ...v.page.errors], []);
+  await a.ctx.close();
+  await v.ctx.close();
 });

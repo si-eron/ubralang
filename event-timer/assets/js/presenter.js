@@ -3,7 +3,7 @@
 // wrap up, the notes for this part of the program, and what comes after.
 import { esc, $, keepAwake, prettyCode } from './ui.js';
 import { setHeader, mountEvent, setPill } from './shell.js';
-import { clockOf, timelineOf, fmtDuration, fmtClock, fmtSpan } from './time.js';
+import { clockOf, timelineOf, effective, fmtDuration, fmtClock, fmtSpan } from './time.js';
 import { clockTone, TONE_CAPTION } from './components.js';
 
 // What the speaker should do, in as few words as possible.
@@ -59,8 +59,9 @@ export function presenterView(root, code) {
   syncFull();
   let lastSide = '';
 
-  const draw = (view, live) => {
+  const draw = (raw, live) => {
     const now = live.now();
+    const view = effective(raw, now);
     const ev = view.event;
     const c = clockOf(view, now);
     const tone = clockTone(c);
@@ -73,7 +74,13 @@ export function presenterView(root, code) {
     let caption = TONE_CAPTION[tone];
     let time = '';
     let sub = '';
-    if (c.status === 'ready') {
+    if (c.status === 'countdown') {
+      label = 'Starting soon';
+      title = view.segments[0]?.title || ev.name;
+      caption = 'Starts in';
+      time = fmtDuration(c.startsInMs);
+      sub = `Starts at ${fmtClock(ev.planned_start)}`;
+    } else if (c.status === 'ready') {
       label = 'Not started yet';
       title = view.segments[0]?.title || ev.name;
       // No timer until the admin presses Start.
@@ -92,7 +99,7 @@ export function presenterView(root, code) {
     }
     $('#pvLabel').textContent = label;
     $('#pvTitle').textContent = title;
-    const lead = c.status !== 'ready' && c.status !== 'ended' ? c.segment?.lead || '' : view.segments[0]?.lead || '';
+    const lead = c.status !== 'ready' && c.status !== 'countdown' && c.status !== 'ended' ? c.segment?.lead || '' : view.segments[0]?.lead || '';
     $('#pvLead').textContent = lead;
     $('#pvLead').hidden = !lead;
     $('#pvCue').textContent = CUE[tone];
@@ -106,7 +113,7 @@ export function presenterView(root, code) {
     $('#pvSub').textContent = sub;
 
     // The side panel changes rarely; only redraw it when it does.
-    const current = c.status === 'ready' ? view.segments[0] : c.segment;
+    const current = c.status === 'ready' || c.status === 'countdown' ? view.segments[0] : c.segment;
     const rows = timelineOf(view, now).filter((r) => r.state === 'upcoming' && r.id !== current?.id).slice(0, 4);
     const side = JSON.stringify([ev.message, current?.notes, rows.map((r) => [r.id, r.title, r.lead, Math.round((r.expectedStart || 0) / 60000)])]);
     if (side !== lastSide) {

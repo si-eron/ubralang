@@ -4,8 +4,26 @@
 
 const MIN = 60_000;
 
+// A countdown that has reached its planned start has started: the first
+// segment began at that moment. Every screen works this out for itself, so the
+// program starts on time on all of them even if no admin phone is open; the
+// server writes it down the next time the admin does anything.
+export function effective(snapshot, now) {
+  const ev = snapshot.event;
+  if (ev.status !== 'countdown' || ev.planned_start == null || now < ev.planned_start || !snapshot.segments?.length) {
+    return snapshot;
+  }
+  const at = ev.planned_start;
+  return {
+    ...snapshot,
+    event: { ...ev, status: 'live', current_index: 0, segment_started_at: at, started_at: at, segment_extra_s: 0, hold_total_ms: 0, hold_started_at: null },
+    segments: snapshot.segments.map((s, i) => (i === 0 ? { ...s, started_at: at, ended_at: null } : s)),
+  };
+}
+
 // The live clock for the segment on stage.
-export function clockOf(snapshot, now) {
+export function clockOf(raw, now) {
+  const snapshot = effective(raw, now);
   const ev = snapshot.event;
   const segments = snapshot.segments || [];
   const index = ev.current_index;
@@ -19,7 +37,7 @@ export function clockOf(snapshot, now) {
     status: ev.status,
     index,
     segment,
-    next: ev.status === 'ready' ? segments[0] || null : next,
+    next: ev.status === 'ready' || ev.status === 'countdown' ? segments[0] || null : next,
     count: segments.length,
     elapsedMs: 0,
     allotMs: 0,
@@ -37,6 +55,14 @@ export function clockOf(snapshot, now) {
   // failing that the moment the first segment actually began.
   const base = ev.planned_start ?? ev.started_at ?? null;
   if (base != null) out.plannedEnd = base + total;
+
+  if (ev.status === 'countdown') {
+    // Start was pressed: counting down to the planned start.
+    out.startsInMs = Math.max(0, ev.planned_start - now);
+    out.projectedEnd = ev.planned_start + total;
+    out.deltaMs = 0;
+    return out;
+  }
 
   if (ev.status === 'ready') {
     if (ev.planned_start != null) {
@@ -71,13 +97,15 @@ export function clockOf(snapshot, now) {
 
 // Each segment's place in the day: when it was planned, when it really ran,
 // and when the ones still to come should now start.
-export function timelineOf(snapshot, now) {
+export function timelineOf(raw, now) {
+  const snapshot = effective(raw, now);
   const ev = snapshot.event;
   const segments = snapshot.segments || [];
   const clock = clockOf(snapshot, now);
   const base = ev.planned_start ?? ev.started_at ?? null;
   let planned = base;
-  let expected = ev.status === 'ready'
+  const notYet = ev.status === 'ready' || ev.status === 'countdown';
+  let expected = notYet
     ? Math.max(now, ev.planned_start ?? now)
     : now + Math.max(0, clock.remainingMs);
 
@@ -102,7 +130,7 @@ export function timelineOf(snapshot, now) {
     } else if (ev.status === 'ended' && i === ev.current_index) {
       row.state = 'done';
     }
-    if (row.state === 'upcoming' && (ev.status === 'ready' || i > ev.current_index)) {
+    if (row.state === 'upcoming' && (notYet || i > ev.current_index)) {
       row.expectedStart = expected;
       expected += s.duration_s * 1000;
     }
