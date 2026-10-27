@@ -713,3 +713,7 @@ body.has-notice { overflow: hidden; }
 .hero-sched { margin-top: 10px; padding: 8px 12px; border-radius: 10px; background: var(--gold-tint); color: var(--ink); font-size: 15px; font-weight: 600; }
 .hero-warn .hero-sched, .hero-bad .hero-sched { background: rgb(255 255 255 / 0.2); color: #fff; }
 .flex-check { font-size: 13px; }
+.session-presets { display: grid; gap: 8px; margin-bottom: 8px; }
+.preset-btn { justify-content: flex-start; min-height: 52px; gap: 10px; text-align: left; }
+.preset-n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--gold); color: #fff; font-size: 13px; flex: none; }
+.preset-text { flex: 1; }

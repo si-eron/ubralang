@@ -432,6 +432,15 @@ export function adminView(root, code, initialTab) {
   // -------------------------------------------------------- notes
 
   const QUICK_NOTES = ['Please wrap up your sessions', 'Please let all students exit'];
+  // One tap per part of a station session: sent at once to every station as a
+  // full-screen note, with its countdown already set.
+  const SESSION_PRESETS = [
+    { text: 'Students may now enter', minutes: 0 },
+    { text: 'Introduction of guest speaker', minutes: 0 },
+    { text: 'Guest speaker session starts now', minutes: 35 },
+    { text: 'Please wrap up your sessions', minutes: 5 },
+    { text: 'Please let all students exit & transfer to the next station', minutes: 10 },
+  ];
 
   function drawNotes(view) {
     // The form is drawn once and keeps what is being typed; only the list of
@@ -439,6 +448,9 @@ export function adminView(root, code, initialTab) {
     if (!$('#noteForm')) {
       const stationsOn = view.event.stations_enabled && view.stations.length;
       $('#panel').innerHTML = `
+        ${stationsOn ? `<h2 class="panel-title">Station session: one tap to all stations</h2>
+        <div class="session-presets">${SESSION_PRESETS.map((p, i) => `<button type="button" class="btn preset-btn" data-preset="${i}">
+          <span class="preset-n">${i + 1}</span><span class="preset-text">${esc(p.text)}</span>${p.minutes ? `<span class="chip chip-warn">${p.minutes} min</span>` : ''}</button>`).join('')}</div>` : ''}
         <h2 class="panel-title">Send a note</h2>
         <p class="muted panel-help">It covers the whole screen in big letters until each person taps “I’ve read it”. You see below who has.</p>
         <form id="noteForm" class="form note-form" autocomplete="off">
@@ -680,6 +692,15 @@ export function adminView(root, code, initialTab) {
     }
 
     // Notes
+    const preset = t.closest('[data-preset]');
+    if (preset) {
+      const p = SESSION_PRESETS[Number(preset.dataset.preset)];
+      if (await confirmDialog({ title: `Send to all stations: “${p.text}”?`, body: `It covers every station’s screen until they tap “I’ve read it”${p.minutes ? `, with a ${p.minutes}-minute countdown` : ''}.`, confirm: 'Send now' })) {
+        const res = await edit('notice', { text: p.text, audience: 'stations', minutes: p.minutes });
+        if (res) { toast('Sent to all stations.', 'ok'); $('#noteList').innerHTML = noteListHtml(live.view()); }
+      }
+      return;
+    }
     const quick = t.closest('[data-quick]');
     if (quick) {
       const box = $('#noteForm textarea[name=text]');
