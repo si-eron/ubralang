@@ -4,8 +4,8 @@
 //
 // The key is meant to be public; it identifies the project and grants nothing
 // on its own. What anyone can do is decided by backend/schema.sql.
-export const SUPABASE_URL = '';
-export const SUPABASE_PUBLISHABLE_KEY = '';
+export const SUPABASE_URL = 'https://wgmcjqudipvwltkrcsms.supabase.co';
+export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_eUBqGEJhaSdj3_7mAE8lFg_QIgE8VCS';
 
 // For development: ?backend=local makes this visit talk to tools/dev-server.js
 // on the same address instead. It sticks for the browser tab, not forever.
