@@ -535,3 +535,39 @@ test('notes: presenter yes, big screen no; a scheduled note pops up by itself', 
   assert.deepEqual([...pv.page.errors, ...tv.page.errors], []);
   await Promise.all([pv.ctx.close(), tv.ctx.close()]);
 });
+
+test('a program that has ended can be restarted, or reset to not started', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Restart', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: [{ title: 'Opening', duration_s: 300 }, { title: 'Closing', duration_s: 300 }] });
+  await admin('start', { from: -1 });
+  await admin('next', { from: 0 });
+  await admin('next', { from: 1 }); // ended
+
+  const a = await phone();
+  await a.page.goto(url(`#/go/${made.key}`));
+  await a.page.waitForSelector('#controls [data-act=restart]');
+  const v = await phone();
+  await v.page.goto(url(`#/e/${made.code}`));
+  await v.page.waitForSelector('.hero-title:has-text("The program has ended")');
+
+  await a.page.click('#controls [data-act=restart]');
+  await a.page.click('dialog[open] button[value=ok]');
+  await a.page.waitForSelector('#controls .go-sub:has-text("Closing")', { timeout: 5000 }); // Next › Closing
+  await v.page.waitForSelector('.hero-title:has-text("Opening")', { timeout: 5000 });
+  assert.match(await v.page.textContent('.hero-caption'), /Time left/);
+  const st = await stack.rpc('et_state', { p_code: made.code, p_since: 0 });
+  assert.deepEqual([st.event.status, st.event.current_index, st.segments[1].started_at], ['live', 0, null]);
+
+  // End it again, then "Reset to not started": no timer until Start.
+  await admin('end');
+  await a.page.waitForSelector('#controls [data-act=resetonly]', { timeout: 5000 });
+  await a.page.click('#controls [data-act=resetonly]');
+  await a.page.click('dialog[open] button[value=ok]');
+  await v.page.waitForSelector('.hero-idle', { timeout: 5000 });
+  assert.equal(await v.page.locator('.hero-time').count(), 0);
+  assert.equal((await stack.rpc('et_state', { p_code: made.code, p_since: 0 })).event.status, 'ready');
+  assert.deepEqual([...a.page.errors, ...v.page.errors], []);
+  await a.ctx.close();
+  await v.ctx.close();
+});
