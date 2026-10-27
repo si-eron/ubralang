@@ -364,7 +364,8 @@ export function adminView(root, code, initialTab) {
           <p class="bigcode">${esc(prettyCode(code))}</p>
           <p class="share-url">${esc(url)}</p>
           <div class="row"><button class="btn" data-copy="${esc(url)}">Copy link</button>
-          <a class="btn" href="#/e/${esc(code)}/stage">Open big screen</a></div>
+          <a class="btn" href="#/e/${esc(code)}/stage">Open big screen</a>
+          <a class="btn" href="#/e/${esc(code)}/presenter">Presenter view</a></div>
         </div>
       </div>
       <h2 class="panel-title">Your admin key</h2>

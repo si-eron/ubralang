@@ -202,3 +202,62 @@ test('the clock turns orange when time is almost up and red when it is over', { 
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
+
+test('on a phone, it asks to be installed first, with that phone’s steps and the event code', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Install check', p_venue: '' });
+  const iphone = await phone({ ...playwright.devices['iPhone 13'] });
+  await iphone.page.goto(url(`#/e/${made.code}`));
+  await iphone.page.waitForSelector('.install-gate');
+  const text = await iphone.page.textContent('.install-gate');
+  assert.match(text, /Add to Home Screen/);
+  assert.match(text, new RegExp(`${made.code.slice(0, 3)}-${made.code.slice(3)}`), 'shows the event code to type in the app');
+
+  const android = await phone({ ...playwright.devices['Pixel 7'] });
+  await android.page.goto(url(`#/e/${made.code}`));
+  await android.page.waitForSelector('.install-gate');
+  assert.match(await android.page.textContent('.install-gate'), /Install app/);
+  // They can still carry on in the browser, and are not asked again in this tab.
+  await android.page.click('#browserOk');
+  await android.page.waitForSelector('.page-event .hero');
+  await android.page.reload();
+  await android.page.waitForSelector('.page-event .hero');
+
+  // A computer is never stopped.
+  const desk = await phone();
+  await desk.page.goto(url(`#/e/${made.code}`));
+  await desk.page.waitForSelector('.page-event .hero');
+  assert.deepEqual([...iphone.page.errors, ...android.page.errors, ...desk.page.errors], []);
+  await Promise.all([iphone.ctx.close(), android.ctx.close(), desk.ctx.close()]);
+});
+
+test('presenter view: time left, notes, what is next, and a wrap-up cue', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Presenter check', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: [
+    { title: 'Talk', duration_s: 50, lead: 'Dr. Reyes', notes: 'Thank the sponsors' },
+    { title: 'Q&A', duration_s: 600 },
+  ] });
+  await admin('start', { from: -1 });
+  const p = await phone({ viewport: { width: 1280, height: 720 } });
+  await p.page.goto(url(`#/e/${made.code}/presenter`));
+  await p.page.waitForSelector('.presenter[data-tone="warn"]');
+  assert.equal(await p.page.textContent('#pvTitle'), 'Talk');
+  assert.equal(await p.page.textContent('#pvCue'), 'Please wrap up');
+  assert.match(await p.page.textContent('#pvNotes'), /Thank the sponsors/);
+  assert.match(await p.page.textContent('#pvNext'), /Q&A/);
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});
+
+test('the home page has a place to type the admin key, and it opens master control', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Sign-in check', p_venue: '' });
+  const p = await phone();
+  await p.page.goto(url('#/'));
+  await p.page.fill('#staffForm input[name=code]', made.code.toLowerCase());
+  await p.page.fill('#staffForm input[name=key]', `${made.key.slice(0, 4)}-${made.key.slice(4)}`);
+  await p.page.click('#staffForm button[type=submit]');
+  await p.page.waitForSelector('#controls');
+  assert.match(await p.page.evaluate(() => location.hash), /\/admin/);
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});

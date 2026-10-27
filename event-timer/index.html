@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Event Time Tracker</title>
   <meta name="description" content="A live run-of-show clock for events. One admin moves the program along; every phone sees what is on now, how long is left, and how each station is doing.">
-  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FDFAF4">
+  <meta name="color-scheme" content="light">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -16,6 +15,7 @@
   <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/icons/icon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/public-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/app.css">
   <script type="module" src="assets/js/app.js"></script>
 </head>
@@ -35,6 +35,10 @@
   <main id="app" tabindex="-1">
     <noscript><p class="page">This app needs JavaScript turned on.</p></noscript>
   </main>
+  <div id="updateBar" class="update-bar" hidden role="status">
+    <span>A new version of Event Timer is ready.</span>
+    <button class="btn btn-small btn-primary" type="button">Update now</button>
+  </div>
   <div id="toast" hidden role="status" aria-live="polite"></div>
   <div id="announcer" class="sr-only" aria-live="polite"></div>
   <dialog id="dialog"></dialog>

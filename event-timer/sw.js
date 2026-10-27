@@ -3,7 +3,7 @@
    up on the next open with nothing to clear. When the network is missing or
    slow, the copy saved last time is used, so the app still opens at a venue
    with bad signal and shows the last state it saw. */
-const CACHE = 'event-timer-v2';
+const CACHE = 'event-timer-v4';
 const SHELL = [
   './',
   'index.html',
@@ -13,6 +13,8 @@ const SHELL = [
   'assets/js/admin.js',
   'assets/js/components.js',
   'assets/js/config.js',
+  'assets/js/install.js',
+  'assets/js/presenter.js',
   'assets/js/shell.js',
   'assets/js/stage.js',
   'assets/js/station.js',
@@ -21,6 +23,12 @@ const SHELL = [
   'assets/js/time.js',
   'assets/js/ui.js',
   'assets/vendor/qrcode.js',
+  'assets/fonts/bricolage-grotesque-latin-600-normal.woff2',
+  'assets/fonts/bricolage-grotesque-latin-700-normal.woff2',
+  'assets/fonts/public-sans-latin-400-normal.woff2',
+  'assets/fonts/public-sans-latin-500-normal.woff2',
+  'assets/fonts/public-sans-latin-600-normal.woff2',
+  'assets/fonts/public-sans-latin-700-normal.woff2',
   'assets/icons/icon.svg',
   'assets/icons/icon-192.png',
   'assets/icons/apple-touch-icon.png',
