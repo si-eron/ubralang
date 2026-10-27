@@ -107,22 +107,21 @@ export function shareDialog(code, name) {
 }
 
 
-// "Present", as in Canva: go full screen first (it needs the tap), then show
-// the presenter view or the big screen in this same window. Phones that
-// cannot go full screen (iPhone) still get the view; installed, it is full
-// screen anyway.
-export async function present(code, view) {
-  try {
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-    }
-  } catch { /* not allowed here: carry on in the window */ }
-  location.hash = `#/e/${code}/${view}`;
-}
-
-export function leavePresent(code) {
-  if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
-  location.hash = `#/e/${code}`;
+// "Present", as in Canva: on a computer the presenter view (or the big
+// screen) opens in its own window, so this tab keeps Master control. Drag that
+// window onto the projector and press its Full screen button. On a phone it
+// opens here, in the app, which is already full screen when installed.
+export function present(code, view) {
+  const hash = `#/e/${code}/${view}`;
+  const isPhone = /iphone|ipad|ipod|android/i.test(navigator.userAgent || '')
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (!isPhone) {
+    const url = `${location.href.split('#')[0]}${hash}`;
+    const win = window.open(url, `et-${view}-${code}`, 'popup,width=1280,height=760');
+    if (win) { win.focus(); return; }
+    // A blocked pop-up: fall back to this tab.
+  }
+  location.hash = hash;
 }
 
 document.addEventListener('click', (e) => {

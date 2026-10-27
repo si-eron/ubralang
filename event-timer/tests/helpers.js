@@ -1,7 +1,7 @@
 // Shared set-up: a fresh database with the schema loaded, and the dev server on
 // a free port in front of it. Needs a local Postgres; see tests/README.md.
 const { Pool } = require('pg');
-const { createServer, prepareDatabase } = require('../tools/dev-server.js');
+const { createServer, prepareDatabase, attachRealtime } = require('../tools/dev-server.js');
 
 const ADMIN_URL = process.env.TEST_DATABASE_ADMIN_URL || 'postgres://postgres:postgres@localhost:5432/postgres';
 
@@ -19,6 +19,7 @@ async function startStack(name) {
 
   const offline = { value: false };
   const server = createServer({ pool, offline });
+  const realtime = await attachRealtime(server, pool, offline);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -32,6 +33,7 @@ async function startStack(name) {
   }
 
   async function stop() {
+    await realtime.close();
     await new Promise((r) => server.close(r));
     server.closeAllConnections?.();
     await pool.end();
@@ -40,7 +42,7 @@ async function startStack(name) {
     await a.end();
   }
 
-  return { base, pool, rpc, stop, offline };
+  return { base, pool, rpc, stop, offline, realtime };
 }
 
 module.exports = { startStack };

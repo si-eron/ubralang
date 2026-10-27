@@ -321,3 +321,81 @@ test('before the admin presses Start, no screen shows a timer', { skip }, async 
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
+
+test('live push: a change reaches every other screen in under a second', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Speed check', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('event', { stations_enabled: true });
+  await admin('stations', { stations: [{ name: 'Faith' }] });
+  const { codes } = await admin('codes');
+  await admin('program', { segments: ['One', 'Two', 'Three', 'Four'].map((title) => ({ title, duration_s: 600 })) });
+  await admin('start', { from: -1 });
+
+  // Four phones watching.
+  const viewers = await Promise.all([1, 2, 3, 4].map(() => phone()));
+  await Promise.all(viewers.map((v) => v.page.goto(url(`#/e/${made.code}`))));
+  await Promise.all(viewers.map((v) => v.page.waitForSelector('.hero-title:has-text("One")')));
+  await new Promise((r) => setTimeout(r, 1500)); // let the first check and the live link settle
+
+  for (const [from, title] of [[0, 'Two'], [1, 'Three']]) {
+    const t0 = Date.now();
+    await admin('next', { from });
+    await Promise.all(viewers.map((v) => v.page.waitForSelector(`.hero-title:has-text("${title}")`, { timeout: 5000 })));
+    const ms = Date.now() - t0;
+    if (process.env.SHOW_MS) console.log(`every screen showed "${title}" after ${ms} ms`);
+    assert.ok(ms < 1000, `every screen showed "${title}" after ${ms} ms`);
+  }
+
+  // A station's tap reaches the others just as fast.
+  await viewers[0].page.click('[data-tab=stations]');
+  const t1 = Date.now();
+  await stack.rpc('et_station', { p_code: made.code, p_station: (await admin('codes')).codes[0].id, p_key: codes[0].code, p_patch: { crowd: 'full' } });
+  await viewers[0].page.waitForSelector('.station-full', { timeout: 5000 });
+  assert.ok(Date.now() - t1 < 1000, `station update took ${Date.now() - t1} ms`);
+
+  for (const v of viewers) assert.deepEqual(v.page.errors, []);
+  await Promise.all(viewers.map((v) => v.ctx.close()));
+});
+
+test('if the live link drops, screens still catch up within seconds, and it reconnects', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Drop check', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: ['One', 'Two', 'Three'].map((title) => ({ title, duration_s: 600 })) });
+  await admin('start', { from: -1 });
+  const v = await phone();
+  await v.page.goto(url(`#/e/${made.code}`));
+  await v.page.waitForSelector('.hero-title:has-text("One")');
+  await new Promise((r) => setTimeout(r, 1500));
+
+  stack.realtime.dropAll(); // the link is cut; the change is made at once
+  await admin('next', { from: 0 });
+  const t0 = Date.now();
+  await v.page.waitForSelector('.hero-title:has-text("Two")', { timeout: 6000 });
+  assert.ok(Date.now() - t0 < 4000, `caught up after ${Date.now() - t0} ms without the live link`);
+
+  // It reconnects by itself; the next change is instant again.
+  await new Promise((r) => setTimeout(r, 2500));
+  const t1 = Date.now();
+  await admin('next', { from: 1 });
+  await v.page.waitForSelector('.hero-title:has-text("Three")', { timeout: 5000 });
+  assert.ok(Date.now() - t1 < 1000, `after reconnecting: ${Date.now() - t1} ms`);
+  assert.deepEqual(v.page.errors, []);
+  await v.ctx.close();
+});
+
+test('Present opens the presenter view in its own window; this tab keeps control', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Present check', p_venue: '' });
+  await stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: 'program', p_args: { segments: [{ title: 'Talk', duration_s: 600 }] } });
+  const p = await phone({ viewport: { width: 1280, height: 800 } });
+  await p.page.goto(url(`#/go/${made.key}`));
+  await p.page.waitForSelector('#controls');
+  await p.page.click('[data-tab=share]');
+  const [win] = await Promise.all([p.ctx.waitForEvent('page'), p.page.click('.share-block [data-present=presenter]')]);
+  await win.waitForSelector('#pvTitle');
+  assert.match(win.url(), /\/presenter$/);
+  assert.match(await p.page.evaluate(() => location.hash), /\/admin/, 'Master control stays in the first tab');
+  // Exit closes the presenter window.
+  await Promise.all([win.waitForEvent('close'), win.click('#pvExit')]);
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});

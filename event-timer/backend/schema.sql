@@ -227,10 +227,61 @@ language sql volatile as $$
   select jsonb_build_object('ok', false, 'error', p_error, 'now', et_ms(clock_timestamp()))
 $$;
 
+-- Every change: move rev on, then push the new state to every open screen.
 create or replace function et_touch(p_event uuid) returns void
-language sql as $$
-  update et_events set rev = rev + 1, touched_at = now() where id = p_event
-$$;
+language plpgsql as $$
+begin
+  update et_events set rev = rev + 1, touched_at = now() where id = p_event;
+  perform et_publish(p_event);
+end $$;
+
+-- An event deleted: tell open screens at once, so they stop showing it.
+create or replace function et_publish_gone(p_code text) returns void
+language plpgsql as $$
+begin
+  begin
+    if to_regprocedure('realtime.send(jsonb,text,text,boolean)') is not null then
+      execute 'select realtime.send($1, $2, $3, false)'
+        using jsonb_build_object('deleted', true), 'state', 'et:' || p_code;
+    else
+      perform pg_notify('et_broadcast', json_build_object('code', p_code, 'deleted', true)::text);
+    end if;
+  exception when others then
+    null;
+  end;
+end $$;
+
+-- Live push. On Supabase, Realtime broadcasts the whole new state on the
+-- topic "et:<event code>" the moment the change is saved, so every phone
+-- updates at once instead of waiting for its next check. (Anyone with the
+-- event code can already read that state through et_state, so the topic
+-- shares nothing new.) Without Realtime (a plain Postgres, as in the tests)
+-- it sends a NOTIFY that tools/dev-server.js turns into the same push.
+-- A push that fails never undoes the change: phones still check every few
+-- seconds.
+create or replace function et_publish(p_event uuid) returns void
+language plpgsql as $$
+declare
+  v_code text;
+  v_rev bigint;
+  v_snap jsonb;
+begin
+  select code, rev into v_code, v_rev from et_events where id = p_event;
+  if v_code is null then
+    return;
+  end if;
+  begin
+    if to_regprocedure('realtime.send(jsonb,text,text,boolean)') is not null then
+      v_snap := et_snapshot(p_event);
+      execute 'select realtime.send($1, $2, $3, false)'
+        using jsonb_build_object('rev', v_rev, 'snapshot', v_snap), 'state', 'et:' || v_code;
+    else
+      perform pg_notify('et_broadcast', json_build_object('code', v_code, 'rev', v_rev)::text);
+    end if;
+  exception when others then
+    null;
+  end;
+end $$;
 
 create or replace function et_note(p_event uuid, p_at timestamptz, p_kind text, p_text text) returns void
 language sql as $$
@@ -628,6 +679,7 @@ begin
 
   when 'delete' then
     delete from et_events where id = e.id;
+    perform et_publish_gone(e.code);
     return jsonb_build_object('ok', true, 'deleted', true, 'now', et_ms(clock_timestamp()));
 
   else
@@ -782,7 +834,7 @@ begin
   foreach f in array array[
     'et_norm(text)', 'et_random_code(int)', 'et_hash(text,text)', 'et_ms(timestamptz)',
     'et_int(text)', 'et_uuid(text)', 'et_at(text,timestamptz)', 'et_fail(text)',
-    'et_touch(uuid)', 'et_note(uuid,timestamptz,text,text)', 'et_snapshot(uuid)',
+    'et_touch(uuid)', 'et_publish(uuid)', 'et_publish_gone(text)', 'et_note(uuid,timestamptz,text,text)', 'et_snapshot(uuid)',
     'et_go(uuid,int,timestamptz)',
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
     'et_station(text,uuid,text,jsonb)', 'et_role(text,text)',

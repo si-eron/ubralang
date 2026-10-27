@@ -1,8 +1,13 @@
 // Keeping every phone on the same page.
 //
-// Each open event asks the server "anything new since rev N?" every few
-// seconds (less often while the screen is hidden). The answer is tiny unless
-// something changed. Every answer also carries the server's clock, so each
+// Two ways news arrives, and either is enough:
+//   1. Live push (realtime.js): the database sends the new state to every
+//      open screen the moment a change is saved. Typically well under a
+//      second from a tap on one phone to every other screen.
+//   2. Checking: each open event asks the server "anything new since rev N?"
+//      every 2 seconds, or every 10 seconds while live push is connected
+//      (then it is only a safety net), and less often while the screen is
+//      hidden. The answer is tiny unless something changed. Every answer also carries the server's clock, so each
 // phone learns how far its own clock is off and every countdown runs on the
 // server's time, not the phone's.
 //
@@ -12,10 +17,13 @@
 // same change arriving twice does nothing the second time.
 
 import { backendUrl, backendKey } from './config.js';
+import { realtime } from './realtime.js';
 
-const POLL_VISIBLE_MS = 2500;
-const POLL_HIDDEN_MS = 15000;
-const STALE_AFTER_MS = 12000; // no answer for this long → say so
+const POLL_VISIBLE_MS = 2000;   // no live push: check this often
+const POLL_LIVE_MS = 10000;     // live push connected: checking is only a safety net
+const POLL_HIDDEN_MS = 15000;   // screen off or app in the background
+const STALE_AFTER_MS = 12000;   // no news for this long → say "Offline"
+const STALE_LIVE_MS = 30000;    // …or this long while live push is connected
 
 export class BackendError extends Error {
   constructor(code, message) {
@@ -100,6 +108,34 @@ export class LiveEvent {
     this.outboxKey = `et.outbox.${code}`;
     this.onVisible = () => this.pollSoon();
     this.onOnline = () => this.pollSoon();
+    this.pushLive = false;
+    this.unsubPush = null;
+  }
+
+  // Live push: the whole new state, the moment it is saved.
+  onPush(msg) {
+    if (msg && msg.deleted) { this.pollSoon(0); return; } // ask, and learn it is gone
+    if (!msg || typeof msg.rev !== 'number') return;
+    this.lastOkAt = Date.now();
+    if (msg.rev <= this.rev) return;
+    if (msg.snapshot && msg.snapshot.event) {
+      this.accept(msg.snapshot);
+      this.emit();
+    } else {
+      this.pollSoon(0); // told something changed, but not what: ask now
+    }
+  }
+
+  onPushStatus(joined) {
+    this.pushLive = joined;
+    // Just connected (or back after a drop): catch up on anything missed.
+    if (joined) {
+      this.pollSoon(0);
+    } else {
+      // Lost it: go back to checking every 2 seconds until it returns.
+      if (!this.inflight) this.pollSoon(POLL_VISIBLE_MS);
+      this.emit();
+    }
   }
 
   start() {
@@ -108,6 +144,7 @@ export class LiveEvent {
     document.addEventListener('visibilitychange', this.onVisible);
     window.addEventListener('online', this.onOnline);
     window.addEventListener('focus', this.onVisible);
+    this.unsubPush = realtime().subscribe(`et:${this.code}`, (m) => this.onPush(m), (j) => this.onPushStatus(j));
     this.pollSoon();
     return this;
   }
@@ -118,6 +155,9 @@ export class LiveEvent {
     document.removeEventListener('visibilitychange', this.onVisible);
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('focus', this.onVisible);
+    this.unsubPush?.();
+    this.unsubPush = null;
+    this.pushLive = false;
   }
 
   subscribe(fn) {
@@ -138,7 +178,9 @@ export class LiveEvent {
     const pending = this.outbox().length;
     if (this.notFound) return 'error';
     if (!this.lastOkAt) return this.lastError ? 'offline' : 'connecting';
-    if (Date.now() - this.lastOkAt > STALE_AFTER_MS || this.lastError === 'offline') return 'offline';
+    const stale = this.pushLive ? STALE_LIVE_MS : STALE_AFTER_MS;
+    // A send or check that just failed means offline, live link or not.
+    if (Date.now() - this.lastOkAt > stale || this.lastError === 'offline') return 'offline';
     if (pending) return 'waiting';
     return 'ok';
   }
@@ -175,7 +217,9 @@ export class LiveEvent {
       if (!this.stopped) {
         const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
         // A little jitter so a room full of phones does not ask in lockstep.
-        const base = hidden ? POLL_HIDDEN_MS : POLL_VISIBLE_MS;
+        // Something waiting to upload, or no live link: every 2 seconds.
+        const waiting = this.outbox().length > 0 || this.lastError === 'offline';
+        const base = hidden ? POLL_HIDDEN_MS : this.pushLive && !waiting ? POLL_LIVE_MS : POLL_VISIBLE_MS;
         this.pollSoon(base + Math.random() * 400);
       }
     }

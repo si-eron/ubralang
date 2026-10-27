@@ -22,7 +22,7 @@ export function presenterView(root, code) {
   root.innerHTML = `
     <div class="presenter" id="presenter">
       <header class="pv-top">
-        <a class="pv-exit" href="#/e/${esc(code)}" aria-label="Leave presenter view">‹ Exit</a>
+        <a class="pv-exit" id="pvExit" href="#/e/${esc(code)}" aria-label="Leave presenter view">‹ Exit</a>
         <p class="pv-event" id="pvEvent"></p>
         <p class="pv-clock" id="pvClock"></p>
         <button class="pv-exit" id="pvFull" type="button">Full screen</button>
@@ -48,6 +48,10 @@ export function presenterView(root, code) {
     </div>`;
 
   const pv = $('#presenter');
+  // Opened by Present in its own window: Exit closes that window.
+  $('#pvExit').addEventListener('click', (e) => {
+    if (window.opener && window.name.startsWith('et-')) { e.preventDefault(); window.close(); }
+  });
   const fullBtn = $('#pvFull');
   const syncFull = () => { fullBtn.hidden = Boolean(document.fullscreenElement) || !document.documentElement.requestFullscreen; };
   fullBtn.addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));

@@ -22,13 +22,16 @@ export function stageView(root, code) {
       <p class="stage-next" id="stageNext"></p>
       <p class="stage-msg" id="stageMsg" hidden></p>
       <div class="stage-tools" id="stageTools">
-        <a class="btn" href="#/e/${esc(code)}">Exit</a>
+        <a class="btn" id="stageExit" href="#/e/${esc(code)}">Exit</a>
         <button class="btn" id="fs">Full screen</button>
         <span id="stagePill"></span>
       </div>
     </div>`;
 
   const stage = $('#stage');
+  $('#stageExit').addEventListener('click', (e) => {
+    if (window.opener && window.name.startsWith('et-')) { e.preventDefault(); window.close(); }
+  });
   let hideTimer = null;
   const showTools = () => {
     stage.classList.add('show-tools');
