@@ -38,7 +38,7 @@ create table if not exists et_events (
   stations_enabled   boolean not null default false,
   -- The live clock. Only et_admin changes these.
   status             text not null default 'ready'
-                       check (status in ('ready', 'live', 'hold', 'ended')),
+                       check (status in ('ready', 'countdown', 'live', 'hold', 'ended')),
   current_index      int not null default -1,          -- -1 before the start
   segment_started_at timestamptz,
   segment_extra_s    int not null default 0,           -- the +1 min / −1 min buttons
@@ -54,6 +54,13 @@ create table if not exists et_events (
   created_at         timestamptz not null default now(),
   touched_at         timestamptz not null default now()
 );
+
+-- 'countdown': the admin pressed Start before the planned start time; the
+-- first segment begins by itself at that time. (Databases set up before this
+-- get the wider list of statuses here.)
+alter table et_events drop constraint if exists et_events_status_check;
+alter table et_events add constraint et_events_status_check
+  check (status in ('ready', 'countdown', 'live', 'hold', 'ended'));
 
 create table if not exists et_segments (
   id          uuid primary key default gen_random_uuid(),
@@ -447,6 +454,18 @@ begin
     update et_events set admin_lookup = et_lookup(et_norm(p_key)) where id = e.id;
   end if;
 
+  -- A countdown that has reached the planned start: the first segment began
+  -- at that moment, whether or not anyone was looking. Every screen already
+  -- shows it that way; this writes it down before the admin's action.
+  if e.status = 'countdown' and e.planned_start is not null and e.planned_start <= clock_timestamp()
+     and exists (select 1 from et_segments where event_id = e.id and position = 0) then
+    perform et_go(e.id, 0, e.planned_start);
+    perform et_note(e.id, e.planned_start, 'program',
+      'Now: ' || (select title from et_segments where event_id = e.id and position = 0));
+    perform et_touch(e.id);
+    select * into e from et_events where id = e.id;
+  end if;
+
   select count(*) into v_count from et_segments where event_id = e.id;
   v_at := et_at(a->>'at', greatest(e.segment_started_at, e.hold_started_at));
   if e.status = 'hold' and e.hold_started_at is not null then
@@ -467,6 +486,19 @@ begin
     return et_snapshot(e.id);
 
   when 'start', 'next' then
+    -- Start before the planned start time: count down to it instead of
+    -- starting now. ("Start now" sends now = true to skip the countdown.)
+    if p_action = 'start' and e.status = 'ready' and e.planned_start is not null
+       and e.planned_start > clock_timestamp() + interval '1 second'
+       and coalesce((a->>'now')::boolean, false) = false then
+      if v_count = 0 then
+        return et_fail('no_segments');
+      end if;
+      update et_events set status = 'countdown' where id = e.id;
+      perform et_note(e.id, now(), 'program', 'Countdown started');
+      perform et_touch(e.id);
+      return et_snapshot(e.id);
+    end if;
     if e.status = 'ended' then
       return et_snapshot(e.id) || jsonb_build_object('stale', true);
     end if;
@@ -488,7 +520,11 @@ begin
     end if;
 
   when 'prev' then
-    if e.status = 'ended' then
+    if e.status = 'countdown' then
+      -- Back during the countdown: cancel it.
+      update et_events set status = 'ready' where id = e.id;
+      perform et_note(e.id, v_at, 'program', 'Countdown cancelled');
+    elsif e.status = 'ended' then
       update et_segments set ended_at = null where event_id = e.id and position = e.current_index;
       update et_events set status = 'live', ended_at = null where id = e.id;
       perform et_note(e.id, v_at, 'program', 'Reopened: ' || coalesce(v_title, ''));

@@ -85,3 +85,16 @@ test('reading a pasted program', () => {
   assert.deepEqual(parseProgramLine('Doxology'), { title: 'Doxology', duration_s: 300 });
   assert.equal(parseProgramLine('   '), null);
 });
+
+test('countdown: time left until the planned start, then the first segment from that moment', () => {
+  const s = snap({ status: 'countdown', planned_start: T }, [10, 5]);
+  const before = clockOf(s, T - 90 * MIN);
+  assert.equal(before.status, 'countdown');
+  assert.equal(before.startsInMs, 90 * MIN);
+  assert.equal(fmtDuration(before.startsInMs), '1:30:00');
+  const after = clockOf(s, T + 2 * MIN);
+  assert.equal(after.status, 'live', 'began by itself at the planned start');
+  assert.equal(after.index, 0);
+  assert.equal(after.remainingMs, 8 * MIN);
+  assert.deepEqual(timelineOf(s, T + 2 * MIN).map((r) => r.state), ['now', 'upcoming']);
+});

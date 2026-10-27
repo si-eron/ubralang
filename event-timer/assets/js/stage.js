@@ -2,7 +2,7 @@
 // Read from across a room: just the time, what is on, and what is next.
 import { esc, $, keepAwake, prettyCode } from './ui.js';
 import { setHeader, mountEvent, setPill } from './shell.js';
-import { clockOf, fmtDuration, fmtClock, fmtSpan } from './time.js';
+import { clockOf, effective, fmtDuration, fmtClock, fmtSpan } from './time.js';
 import { clockTone, TONE_CAPTION } from './components.js';
 
 export function stageView(root, code) {
@@ -47,8 +47,9 @@ export function stageView(root, code) {
     else stage.requestFullscreen?.().catch(() => {});
   });
 
-  const draw = (view, live) => {
+  const draw = (raw, live) => {
     const now = live.now();
+    const view = effective(raw, now);
     const ev = view.event;
     const c = clockOf(view, now);
     const tone = clockTone(c);
@@ -59,7 +60,12 @@ export function stageView(root, code) {
     let title = '';
     let time = '';
     let next = '';
-    if (c.status === 'ready') {
+    if (c.status === 'countdown') {
+      label = 'Starts in';
+      title = view.segments[0]?.title || ev.name;
+      time = fmtDuration(c.startsInMs);
+      next = `Starts at ${fmtClock(ev.planned_start)}`;
+    } else if (c.status === 'ready') {
       // No timer until the admin presses Start.
       label = 'Starting soon';
       title = view.segments[0]?.title || ev.name;

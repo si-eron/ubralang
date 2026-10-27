@@ -338,3 +338,43 @@ async function pick(p) {
   const r = await p;
   return { role: r.role, code: r.code };
 }
+
+test('Start before the planned time counts down, then the first segment begins by itself', async () => {
+  const ev = await newEvent();
+  await ev.admin('program', { segments: PROGRAM });
+  const startAt = Date.now() + 1500;
+  await ev.admin('event', { planned_start: startAt });
+  const armed = await ev.admin('start', { from: -1 });
+  assert.equal(armed.event.status, 'countdown');
+  assert.equal(armed.event.current_index, -1);
+  assert.equal(armed.event.segment_started_at, null, 'nothing has started yet');
+
+  await new Promise((r) => setTimeout(r, 1800));
+  // The next time the admin does anything, the start is written down at the planned moment.
+  const after = await ev.admin('verify');
+  assert.equal(after.event.status, 'live');
+  assert.equal(after.event.current_index, 0);
+  assert.ok(Math.abs(after.event.segment_started_at - startAt) < 1000, 'began at the planned start, not at the tap');
+});
+
+test('during the countdown: Back cancels it, Start now skips it', async () => {
+  const ev = await newEvent();
+  await ev.admin('program', { segments: PROGRAM });
+  await ev.admin('event', { planned_start: Date.now() + 3_600_000 });
+  assert.equal((await ev.admin('start', { from: -1 })).event.status, 'countdown');
+  assert.equal((await ev.admin('prev', { from: -1 })).event.status, 'ready');
+  assert.equal((await ev.admin('start', { from: -1 })).event.status, 'countdown');
+  const now = await ev.admin('start', { from: -1, now: true });
+  assert.equal(now.event.status, 'live');
+  assert.equal(now.event.current_index, 0);
+});
+
+test('with no planned start, or one already past, Start begins at once', async () => {
+  const ev = await newEvent();
+  await ev.admin('program', { segments: PROGRAM });
+  assert.equal((await ev.admin('start', { from: -1 })).event.status, 'live');
+  const late = await newEvent();
+  await late.admin('program', { segments: PROGRAM });
+  await late.admin('event', { planned_start: Date.now() - 600_000 });
+  assert.equal((await late.admin('start', { from: -1 })).event.status, 'live');
+});

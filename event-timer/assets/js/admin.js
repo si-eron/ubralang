@@ -3,7 +3,7 @@ import { liveEvent } from './sync.js';
 import { esc, $, $$, toast, prettyCode, confirmDialog, copyText, keepAwake, qrSvg } from './ui.js';
 import { setHeader, mountEvent, errorText, announce, linksHtml, goLink } from './shell.js';
 import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from './components.js';
-import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine } from './time.js';
+import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine, effective } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
 // What a station runs through, unless the admin types something else.
@@ -36,6 +36,7 @@ export function adminView(root, code, initialTab) {
   let alive = true; // false once the person has left this screen
   let lastPanelAt = 0;
   let lastStationSig = '';
+  let countdownDone = false;
 
   setHeader({ title: 'Master control', subtitle: prettyCode(code), back: `#/e/${code}` });
   document.body.classList.add('is-admin');
@@ -100,14 +101,21 @@ export function adminView(root, code, initialTab) {
       // A short pause stops a double tap from moving twice.
       setTimeout(() => {
         busy = false;
-        const v = live.view();
+        const v = cur();
         if (alive && v) drawControls(v);
       }, 500);
     }
   }
 
-  async function next() {
+  // What the program is now, counting a countdown that has reached its start
+  // time as started (see effective() in time.js).
+  function cur() {
     const v = live.view();
+    return v ? effective(v, live.now()) : null;
+  }
+
+  async function next() {
+    const v = cur();
     if (!v) return;
     const ev = v.event;
     if (ev.status === 'ready') return act('start', { from: ev.current_index });
@@ -121,16 +129,22 @@ export function adminView(root, code, initialTab) {
 
   // -------------------------------------------------------- drawing
 
-  function drawControls(view) {
-    if (!alive || !view) return;
+  function drawControls(raw) {
+    if (!alive || !raw) return;
+    const view = effective(raw, live.now());
     const ev = view.event;
     const segs = view.segments;
     const nextSeg = segs[ev.current_index + 1];
     let primary;
+    const future = ev.planned_start != null && ev.planned_start > live.now() + 1000;
     if (ev.status === 'ready') {
-      primary = segs.length
-        ? `<button class="btn btn-go" data-act="next"><span class="go-label">Start program</span><span class="go-sub">${esc(segs[0].title)}</span></button>`
-        : '<a class="btn btn-go" href="#/e/' + esc(code) + '/admin/program" data-tab-link="program"><span class="go-label">Add the program first</span></a>';
+      primary = !segs.length
+        ? '<a class="btn btn-go" href="#/e/' + esc(code) + '/admin/program" data-tab-link="program"><span class="go-label">Add the program first</span></a>'
+        : future
+          ? `<button class="btn btn-go" data-act="next"><span class="go-label">Start countdown</span><span class="go-sub">${esc(segs[0].title)} begins by itself at ${esc(fmtClock(ev.planned_start))}</span></button>`
+          : `<button class="btn btn-go" data-act="next"><span class="go-label">Start program</span><span class="go-sub">${esc(segs[0].title)}</span></button>`;
+    } else if (ev.status === 'countdown') {
+      primary = `<button class="btn btn-go" data-act="startnow"><span class="go-label">Start now</span><span class="go-sub">Skip the countdown · ${esc(segs[0]?.title || '')}</span></button>`;
     } else if (ev.status === 'ended') {
       primary = '<button class="btn btn-go" disabled><span class="go-label">Program ended</span><span class="go-sub">Back reopens the last segment</span></button>';
     } else if (nextSeg) {
@@ -142,7 +156,7 @@ export function adminView(root, code, initialTab) {
     $('#controls').innerHTML = `
       ${primary}
       <div class="control-row">
-        <button class="btn" data-act="prev" ${ev.status === 'ready' ? 'disabled' : ''} title="Undo the last Next (←)">‹ Back</button>
+        <button class="btn" data-act="prev" ${ev.status === 'ready' ? 'disabled' : ''} title="${ev.status === 'countdown' ? 'Cancel the countdown' : 'Undo the last Next (←)'}">‹ Back</button>
         ${ev.status === 'hold'
           ? '<button class="btn btn-hold" data-act="resume" title="Resume (H)">Resume</button>'
           : `<button class="btn" data-act="hold" ${ev.status !== 'live' ? 'disabled' : ''} title="Stop the clock (H)">Hold</button>`}
@@ -440,8 +454,9 @@ export function adminView(root, code, initialTab) {
     const actBtn = t.closest('[data-act]');
     if (actBtn && !actBtn.disabled) {
       const a = actBtn.dataset.act;
-      const v = live.view();
+      const v = cur();
       if (a === 'next') guarded(next);
+      if (a === 'startnow') guarded(() => act('start', { from: -1, now: true }));
       if (a === 'prev') guarded(() => act('prev', { from: v.event.current_index }));
       if (a === 'hold') guarded(() => act('hold'));
       if (a === 'resume') guarded(() => act('resume'));
@@ -473,7 +488,7 @@ export function adminView(root, code, initialTab) {
     }
     const go = t.closest('[data-goto]');
     if (go) {
-      const v = live.view();
+      const v = cur();
       const target = Number(go.dataset.goto);
       const seg = v.segments[target];
       if (await confirmDialog({ title: `Start “${seg.title}” now?`, body: 'Every screen moves to it straight away.', confirm: 'Start it' })) {
@@ -627,7 +642,7 @@ export function adminView(root, code, initialTab) {
   const onKey = (e) => {
     if (e.target.closest('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
-    const v = live.view();
+    const v = cur();
     if (!v) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); guarded(next); }
     if (e.key === 'ArrowLeft' && v.event.status !== 'ready') { e.preventDefault(); guarded(() => act('prev', { from: v.event.current_index })); }
@@ -675,6 +690,14 @@ export function adminView(root, code, initialTab) {
     },
     tick(view) {
       $('#hero').innerHTML = heroHtml(view, live.now());
+      if (view.event.status === 'countdown' && effective(view, live.now()) !== view && !countdownDone) {
+        // The planned start has come: the program has begun on every screen.
+        // Record it, so the database (and the run of show) agree.
+        countdownDone = true;
+        if (!busy) drawControls(view);
+        live.call('et_admin', { p_code: code, p_key: key, p_action: 'verify', p_args: {} }).catch(() => { countdownDone = false; });
+      }
+      if (view.event.status !== 'countdown') countdownDone = false;
       if (tab === 'run' && Date.now() - lastPanelAt > 10000) drawPanel(view);
     },
   });

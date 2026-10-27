@@ -1,5 +1,5 @@
 // Pieces drawn on more than one screen: the clock, the run of show, stations.
-import { clockOf, timelineOf, fmtDuration, fmtClock, fmtDelta, fmtSpan, stationSince } from './time.js';
+import { clockOf, timelineOf, effective, fmtDuration, fmtClock, fmtDelta, fmtSpan, stationSince } from './time.js';
 import { esc, CROWD, ago } from './ui.js';
 
 // When the countdown turns orange: the last two minutes of a segment, or the
@@ -28,7 +28,8 @@ export const TONE_CAPTION = {
 };
 
 // The big card everyone watches: what is on now, how long is left, what is next.
-export function heroHtml(view, now, { compact = false } = {}) {
+export function heroHtml(raw, now, { compact = false } = {}) {
+  const view = effective(raw, now);
   const ev = view.event;
   const clock = clockOf(view, now);
   const tone = clockTone(clock);
@@ -39,7 +40,14 @@ export function heroHtml(view, now, { compact = false } = {}) {
   let caption = TONE_CAPTION[tone];
   let sub = '';
 
-  if (clock.status === 'ready') {
+  if (clock.status === 'countdown') {
+    // Start was pressed: count down to the planned start.
+    label = 'Starting soon';
+    title = view.segments.length ? `First: ${view.segments[0].title}` : 'Starting soon';
+    caption = 'Starts in';
+    big = fmtDuration(clock.startsInMs);
+    sub = `Starts at ${fmtClock(ev.planned_start)}. The program begins by itself.`;
+  } else if (clock.status === 'ready') {
     label = 'Not started yet';
     title = view.segments.length ? `First: ${view.segments[0].title}` : 'No program yet';
     // No clock until the admin presses Start: not a countdown to the start,
@@ -67,12 +75,13 @@ export function heroHtml(view, now, { compact = false } = {}) {
   const progress = clock.status === 'live' || clock.status === 'hold'
     ? `<div class="bar" aria-hidden="true"><span style="width:${(clock.progress * 100).toFixed(2)}%"></span></div>` : '';
   // Before the start the title already names the first segment, so "then" is the second.
-  const upcoming = clock.status === 'ready' ? view.segments[1] : clock.next;
+  const notYet = clock.status === 'ready' || clock.status === 'countdown';
+  const upcoming = notYet ? view.segments[1] : clock.next;
   const next = upcoming && clock.status !== 'ended'
-    ? `<p class="hero-next"><span class="eyebrow">${clock.status === 'ready' ? 'Then' : 'Next'}</span> ${esc(upcoming.title)} <span class="hero-dim">· ${fmtSpan(upcoming.duration_s * 1000)}</span></p>`
+    ? `<p class="hero-next"><span class="eyebrow">${notYet ? 'Then' : 'Next'}</span> ${esc(upcoming.title)} <span class="hero-dim">· ${fmtSpan(upcoming.duration_s * 1000)}</span></p>`
     : '';
   const facts = [];
-  if (delta && clock.status !== 'ended' && clock.status !== 'ready') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
+  if (delta && !notYet && clock.status !== 'ended') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
   if (delta && clock.status === 'ended') facts.push(`<span class="chip chip-${delta.tone}">Finished ${esc(delta.label.toLowerCase())}</span>`);
   if (clock.projectedEnd && clock.status !== 'ended' && clock.status !== 'ready' && clock.count) facts.push(`<span class="hero-dim">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
 
