@@ -127,6 +127,23 @@ many are open, filling, full and closed (tap a count to see only those).
 - The app itself is kept on the phone too, so it opens at a venue with no
   signal and shows the last state it saw.
 
+## Notes to everyone
+
+Master control → **Notes** sends a note that covers the whole screen in very big
+letters, and stays until each person taps **I've read it**:
+
+- Quick notes: *Please wrap up your sessions*, *Please let all students exit*,
+  or type your own.
+- **Send to** everyone (the facilitator view, stations and the presenter view)
+  or only the stations, or only some of them. The big screen never shows notes.
+- **When**: now, or at a set time; it pops up by itself then.
+- **Countdown** (optional): e.g. 5 minutes. It shows on the note, and after
+  "I've read it" stays along the bottom of the screen, turning orange in the
+  last minute and red when time is up.
+- Master control lists each station as confirmed (with the time) or waiting,
+  and counts the other phones that confirmed (with names, if they gave one).
+  **Clear** takes a note off every screen.
+
 ## Putting it on a phone
 
 Open the site, then:

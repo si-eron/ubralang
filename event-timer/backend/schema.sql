@@ -8,7 +8,7 @@
 -- How it is protected. The web page ships with Supabase's publishable key,
 -- which anyone can read. So the tables themselves are closed: row-level
 -- security is on and there are no policies, which means the publishable key
--- cannot read or write a single row directly. Everything goes through the six
+-- cannot read or write a single row directly. Everything goes through the seven
 -- functions at the bottom of this file, and each one checks the code it is
 -- given:
 --
@@ -18,6 +18,7 @@
 --   et_station  that station's code (or admin)  update one station
 --   et_role     either                          "which one is this code?"
 --   et_enter    any code on its own             "where does this code lead?"
+--   et_ack      anyone with the event code      "I've read this note"
 --
 -- Codes are drawn from 31 characters that cannot be confused when read aloud
 -- or off a screen (no 0/O, 1/I/L). An admin key is 8 of them, about 850
@@ -98,6 +99,32 @@ create table if not exists et_stations (
 -- only stations made from now on start with it.
 alter table et_stations alter column phases set default array['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'];
 
+-- Notes from Master control: a full-screen pop-up on the phones it is for,
+-- which each person confirms with "I've read it". Optionally scheduled
+-- (show_at) and with a countdown (ends_at), e.g. "5 minutes to wrap up".
+create table if not exists et_notices (
+  id          uuid primary key default gen_random_uuid(),
+  event_id    uuid not null references et_events(id) on delete cascade,
+  text        text not null,
+  audience    text not null default 'everyone' check (audience in ('everyone', 'stations')),
+  station_ids uuid[],                                  -- null: every station
+  show_at     timestamptz not null default now(),
+  ends_at     timestamptz,
+  created_at  timestamptz not null default now(),
+  cleared_at  timestamptz
+);
+
+create table if not exists et_notice_acks (
+  notice_id   uuid not null references et_notices(id) on delete cascade,
+  device      text not null,                           -- a random id kept on the phone
+  station_id  uuid,                                    -- set when a station's phone confirmed
+  name        text not null default '',
+  at          timestamptz not null default now(),
+  primary key (notice_id, device)
+);
+
+create index if not exists et_notices_event on et_notices (event_id, created_at desc);
+
 create table if not exists et_log (
   id        bigserial primary key,
   event_id  uuid not null references et_events(id) on delete cascade,
@@ -122,15 +149,17 @@ alter table et_events   enable row level security;
 alter table et_segments enable row level security;
 alter table et_stations enable row level security;
 alter table et_log      enable row level security;
+alter table et_notices  enable row level security;
+alter table et_notice_acks enable row level security;
 
-revoke all on et_events, et_segments, et_stations, et_log from public;
+revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from public;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
-    revoke all on et_events, et_segments, et_stations, et_log from anon;
+    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from anon;
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
-    revoke all on et_events, et_segments, et_stations, et_log from authenticated;
+    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from authenticated;
   end if;
 end $$;
 
@@ -335,6 +364,20 @@ language sql volatile as $$
         'updated_at', et_ms(t.updated_at), 'updated_by', t.updated_by
       ) order by t.position)
       from et_stations t where t.event_id = e.id), '[]'::jsonb),
+    'notices', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', n.id, 'text', n.text, 'audience', n.audience, 'station_ids', to_jsonb(n.station_ids),
+        'show_at', et_ms(n.show_at), 'ends_at', et_ms(n.ends_at), 'created_at', et_ms(n.created_at),
+        'ack_count', (select count(*) from et_notice_acks k where k.notice_id = n.id),
+        -- Stations by name, and phones that gave a name (not every phone, to
+        -- keep each update small); the rest are only counted.
+        'acks', coalesce((
+          select jsonb_agg(jsonb_build_object('station_id', k.station_id, 'name', k.name, 'at', et_ms(k.at)) order by k.at)
+          from (select * from et_notice_acks k where k.notice_id = n.id and (k.station_id is not null or k.name <> '')
+                order by k.at limit 80) k), '[]'::jsonb)
+      ) order by n.created_at desc)
+      from et_notices n
+      where n.event_id = e.id and n.cleared_at is null and n.created_at > now() - interval '12 hours'), '[]'::jsonb),
     'log', coalesce((
       select jsonb_agg(jsonb_build_object('at', et_ms(l.at), 'kind', l.kind, 'text', l.text) order by l.at desc, l.id desc)
       from (select * from et_log where event_id = e.id order by at desc, id desc limit 30) l), '[]'::jsonb)
@@ -698,6 +741,32 @@ begin
     end loop;
     delete from et_stations where event_id = e.id and not (id = any (v_ids));
 
+  when 'notice' then
+    v_text := left(btrim(coalesce(a->>'text', '')), 200);
+    if v_text = '' then
+      return et_fail('note_required');
+    end if;
+    if (select count(*) from et_notices where event_id = e.id and cleared_at is null) >= 50 then
+      return et_fail('too_many');
+    end if;
+    v_target := least(240, greatest(0, coalesce(et_int(a->>'minutes'), 0)));  -- countdown minutes
+    insert into et_notices (event_id, text, audience, station_ids, show_at, ends_at)
+    select e.id, v_text,
+           case when a->>'audience' = 'stations' then 'stations' else 'everyone' end,
+           (select array_agg(et_uuid(x)) from jsonb_array_elements_text(
+              case when jsonb_typeof(a->'station_ids') = 'array' then a->'station_ids' else '[]'::jsonb end) x
+            where et_uuid(x) is not null),
+           t.show_at,
+           case when v_target > 0 then t.show_at + make_interval(mins => v_target) end
+      from (select least(now() + interval '1 day', greatest(now(),
+              coalesce(to_timestamp(nullif(a->>'show_at', '')::double precision / 1000), now()))) as show_at) t
+    returning id into v_id;
+    perform et_note(e.id, now(), 'message', 'Note: ' || v_text);
+    v_extra := jsonb_build_object('notice', v_id);
+
+  when 'notice_clear' then
+    update et_notices set cleared_at = now() where id = et_uuid(a->>'id') and event_id = e.id;
+
   when 'station_code' then
     update et_stations set code = et_new_code()
      where id = et_uuid(a->>'id') and event_id = e.id;
@@ -858,10 +927,50 @@ begin
   return et_fail('not_found');
 end $$;
 
+-- ------------------------------------------------------------------ et_ack
+
+-- "I've read it" on a note. A phone with a station's code is credited to that
+-- station; any other phone is counted. The same phone twice counts once.
+create or replace function et_ack(p_code text, p_notice uuid, p_device text, p_key text default null, p_name text default '')
+returns jsonb
+language plpgsql volatile security definer
+set search_path = public, pg_temp
+as $$
+declare
+  e et_events;
+  v_station uuid;
+  k text := et_norm(p_key);
+begin
+  select * into e from et_events where code = et_norm(p_code);
+  if not found then
+    return et_fail('not_found');
+  end if;
+  if not exists (select 1 from et_notices where id = p_notice and event_id = e.id) then
+    return et_fail('no_notice');
+  end if;
+  if btrim(coalesce(p_device, '')) = '' then
+    return et_fail('bad_device');
+  end if;
+  if k <> '' then
+    select id into v_station from et_stations where event_id = e.id and code = k;
+  end if;
+  -- A free database is not a place for a million confirmations.
+  if (select count(*) from et_notice_acks where notice_id = p_notice) >= 2000 then
+    return et_snapshot(e.id);
+  end if;
+  insert into et_notice_acks (notice_id, device, station_id, name)
+  values (p_notice, left(p_device, 64), v_station, left(btrim(coalesce(p_name, '')), 40))
+  on conflict (notice_id, device) do nothing;
+  if found then
+    perform et_touch(e.id);
+  end if;
+  return et_snapshot(e.id);
+end $$;
+
 -- ------------------------------------------------------------------ grants
 
 -- Supabase lets the publishable key run every new function by default. Take
--- that away from the helpers, then give back only the six front doors.
+-- that away from the helpers, then give back only the seven front doors.
 do $$
 declare
   f text;
@@ -874,7 +983,7 @@ begin
     'et_go(uuid,int,timestamptz)',
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
     'et_station(text,uuid,text,jsonb)', 'et_role(text,text)',
-    'et_new_code()', 'et_lookup(text)', 'et_enter(text)'
+    'et_new_code()', 'et_lookup(text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)'
   ] loop
     execute format('revoke all on function %s from public', f);
     foreach r in array array['anon', 'authenticated'] loop
@@ -885,7 +994,7 @@ begin
   end loop;
   foreach f in array array[
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
-    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)', 'et_enter(text)'
+    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)'
   ] loop
     foreach r in array array['anon', 'authenticated'] loop
       if exists (select 1 from pg_roles where rolname = r) then

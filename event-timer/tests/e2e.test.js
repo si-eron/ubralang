@@ -186,13 +186,14 @@ test('the clock turns orange when time is almost up and red when it is over', { 
   await admin('next', { from: 0 });
   await p.page.waitForSelector('.hero-warn .hero-caption:has-text("Almost time")', { timeout: 6000 });
   await p.page.waitForTimeout(600); // the card fades between colours over 0.4 s
-  const orange = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
+  const heroColour = () => p.page.evaluate(() => getComputedStyle(document.querySelector('#hero .hero')).backgroundColor);
+  const orange = await heroColour();
   assert.equal(orange, 'rgb(194, 65, 12)');
 
   await admin('next', { from: 1 });
   await p.page.waitForSelector('.hero-bad .hero-caption:has-text("Over time by")', { timeout: 10000 });
   await p.page.waitForTimeout(2000);
-  const red = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
+  const red = await heroColour();
   assert.equal(red, 'rgb(212, 42, 47)');
   const shown = await secondsOnScreen(p.page);
   assert.ok(shown >= 1 && shown <= 30, `shows ${shown}s over (it counts up once time is over)`);
@@ -461,4 +462,76 @@ test('Start with a planned time shows a countdown everywhere, then starts by its
   assert.deepEqual([...a.page.errors, ...v.page.errors], []);
   await a.ctx.close();
   await v.ctx.close();
+});
+
+test('notes: full-screen on the stations it is for, confirmed live in Master control', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Notes', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('event', { stations_enabled: true });
+  await admin('stations', { stations: [{ name: 'Faith' }, { name: 'Service' }] });
+  const { codes } = await admin('codes');
+
+  const a = await phone();
+  await a.page.goto(url(`#/go/${made.key}`));
+  await a.page.waitForSelector('#controls');
+  await a.page.click('[data-tab=notes]');
+  const st = await phone();
+  await st.page.goto(url(`#/go/${codes[0].code}`));
+  await st.page.waitForSelector('.crowd-grid');
+  const viewer = await phone();
+  await viewer.page.goto(url(`#/e/${made.code}`));
+  await viewer.page.waitForSelector('.page-event .hero');
+  await new Promise((r) => setTimeout(r, 1500));
+
+  // Master control: quick note to the stations, with a 5-minute countdown.
+  await a.page.click('[data-quick="Please wrap up your sessions"]');
+  await a.page.check('input[name=audience][value=stations]');
+  await a.page.selectOption('select[name=minutes]', '5');
+  const t0 = Date.now();
+  await a.page.click('#noteForm button[type=submit]');
+  await st.page.waitForSelector('.notice-overlay .notice-text:has-text("Please wrap up your sessions")', { timeout: 5000 });
+  assert.ok(Date.now() - t0 < 1500, `station saw it after ${Date.now() - t0} ms`);
+  assert.match(await st.page.textContent('#noticeTimer'), /^(5:00|4:5\d) left$/);
+  const size = await st.page.$eval('.notice-text', (el) => parseFloat(getComputedStyle(el).fontSize));
+  assert.ok(size >= 36, `very big text (${size}px)`);
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(await viewer.page.locator('.notice-overlay').count(), 0, 'a note for stations does not go to the facilitator view');
+  await a.page.waitForSelector('.note-acks .waiting:has-text("Faith")');
+
+  // The station confirms: the pop-up goes, the countdown stays at the bottom, Master control sees it.
+  await st.page.click('#noticeOk');
+  await st.page.waitForSelector('.notice-overlay', { state: 'detached' });
+  await st.page.waitForSelector('.notice-bar:has-text("left")');
+  await a.page.waitForSelector('.note-acks .acked:has-text("Faith")', { timeout: 5000 });
+  await a.page.waitForSelector('.note-acks .waiting:has-text("Service")');
+
+  // A note for everyone reaches the facilitator view; confirming is counted.
+  await admin('notice', { text: 'Lunch is served in the canteen', audience: 'everyone' });
+  await viewer.page.waitForSelector('.notice-text:has-text("Lunch is served")', { timeout: 5000 });
+  await viewer.page.click('#noticeOk');
+  await a.page.waitForSelector('.note-others:has-text("1 other phone confirmed")', { timeout: 5000 });
+
+  for (const x of [a, st, viewer]) assert.deepEqual(x.page.errors, []);
+  await Promise.all([a.ctx.close(), st.ctx.close(), viewer.ctx.close()]);
+});
+
+test('notes: presenter yes, big screen no; a scheduled note pops up by itself', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Notes 2', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: [{ title: 'Talk', duration_s: 600 }] });
+  const pv = await phone({ viewport: { width: 1280, height: 800 } });
+  await pv.page.goto(url(`#/e/${made.code}/presenter`));
+  await pv.page.waitForSelector('#pvTitle');
+  const tv = await phone({ viewport: { width: 1280, height: 720 } });
+  await tv.page.goto(url(`#/e/${made.code}/stage`));
+  await tv.page.waitForSelector('#stageTitle');
+
+  await admin('notice', { text: 'Two minutes, please', audience: 'everyone', show_at: Date.now() + 2500 });
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(await pv.page.locator('.notice-overlay').count(), 0, 'not before its time');
+  await pv.page.waitForSelector('.notice-text:has-text("Two minutes, please")', { timeout: 6000 });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(await tv.page.locator('.notice-overlay').count(), 0, 'never on the big screen');
+  assert.deepEqual([...pv.page.errors, ...tv.page.errors], []);
+  await Promise.all([pv.ctx.close(), tv.ctx.close()]);
 });

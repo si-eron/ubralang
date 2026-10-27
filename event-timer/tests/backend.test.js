@@ -378,3 +378,58 @@ test('with no planned start, or one already past, Start begins at once', async (
   await late.admin('event', { planned_start: Date.now() - 600_000 });
   assert.equal((await late.admin('start', { from: -1 })).event.status, 'live');
 });
+
+test('notes: sent to stations with a countdown; confirmations by station and by phone', async () => {
+  const ev = await newEvent();
+  await ev.admin('event', { stations_enabled: true });
+  const made = await ev.admin('stations', { stations: [{ name: 'Faith' }, { name: 'Service' }] });
+  const { codes } = await ev.admin('codes');
+
+  const sent = await ev.admin('notice', { text: 'Please wrap up your sessions', audience: 'stations', minutes: 5 });
+  assert.equal(sent.ok, true);
+  const n = sent.notices[0];
+  assert.equal(n.id, sent.notice);
+  assert.deepEqual([n.text, n.audience, n.station_ids, n.ack_count], ['Please wrap up your sessions', 'stations', null, 0]);
+  assert.ok(Math.abs(n.ends_at - n.show_at - 5 * 60_000) < 1000, 'a five-minute countdown');
+
+  const ack = (device, key, name = '') => stack.rpc('et_ack', { p_code: ev.code, p_notice: n.id, p_device: device, p_key: key, p_name: name });
+  const st = await ack('phone-A', codes[0].code);
+  assert.equal(st.notices[0].ack_count, 1);
+  assert.equal(st.notices[0].acks[0].station_id, made.stations[0].id, 'credited to Station Faith');
+  await ack('phone-A', codes[0].code); // the same phone again
+  await ack('phone-B', null, 'Ana');
+  const after = await ack('phone-C', null);
+  assert.equal(after.notices[0].ack_count, 3, 'three phones, counted once each');
+  assert.deepEqual(after.notices[0].acks.map((a) => a.name), ['', 'Ana'], 'stations and named phones listed; others only counted');
+
+  const bad = await stack.rpc('et_ack', { p_code: ev.code, p_notice: '00000000-0000-0000-0000-000000000000', p_device: 'x' });
+  assert.equal(bad.error, 'no_notice');
+});
+
+test('notes: chosen stations, a scheduled time, and Clear', async () => {
+  const ev = await newEvent();
+  const made = await ev.admin('stations', { stations: [{ name: 'A' }, { name: 'B' }] });
+  const later = Date.now() + 3_600_000;
+  const sent = await ev.admin('notice', { text: 'Please let all students exit', audience: 'stations', station_ids: [made.stations[1].id], show_at: later });
+  const n = sent.notices[0];
+  assert.deepEqual(n.station_ids, [made.stations[1].id]);
+  assert.ok(Math.abs(n.show_at - later) < 1000, 'scheduled');
+  assert.equal(n.ends_at, null, 'no countdown');
+  assert.equal((await ev.admin('notice', { text: '   ' })).error, 'note_required');
+  const cleared = await ev.admin('notice_clear', { id: n.id });
+  assert.equal(cleared.notices.length, 0);
+});
+
+test('the public key cannot read notes or confirmations directly', async () => {
+  const client = await stack.pool.connect();
+  try {
+    for (const sql of ['select * from et_notices', 'select * from et_notice_acks']) {
+      await client.query('begin');
+      await client.query('set local role anon');
+      await assert.rejects(client.query(sql), /permission denied/, sql);
+      await client.query('rollback');
+    }
+  } finally {
+    client.release();
+  }
+});

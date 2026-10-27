@@ -1,5 +1,6 @@
 // Shared by every screen: the header, the sync pill, opening an event.
 import { liveEvent } from './sync.js';
+import { createNotices } from './notices.js';
 import { esc, $, prettyCode, syncPill, copyText, qrSvg } from './ui.js';
 
 // ------------------------------------------------------------- header
@@ -48,8 +49,10 @@ export function errorText(code, fallback) {
 
 // Opens an event, keeps it in sync, and calls render() whenever it changes and
 // tick() four times a second. Returns the clean-up.
-export function mountEvent(code, { render, tick, onNotFound }) {
+export function mountEvent(code, { render, tick, onNotFound, notices = null }) {
   const live = liveEvent(code).start();
+  // Notes from Master control pop up on top of this screen (if it takes them).
+  const noteLayer = notices ? createNotices(code, live, notices) : null;
   let lastKey = null;
   let unsub = null;
   let ticker = null;
@@ -69,16 +72,21 @@ export function mountEvent(code, { render, tick, onNotFound }) {
     const moved = lastKey !== null && key !== lastKey;
     lastKey = key;
     render(view, live, { moved });
+    noteLayer?.update(view);
   };
   unsub = live.subscribe(update);
   ticker = setInterval(() => {
     const view = live.view();
-    if (view) tick?.(view, live);
+    if (view) {
+      tick?.(view, live);
+      noteLayer?.tick(view);
+    }
   }, 250);
   update();
   return () => {
     unsub();
     clearInterval(ticker);
+    noteLayer?.destroy();
     live.stop();
   };
 }

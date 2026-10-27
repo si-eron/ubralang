@@ -46,3 +46,21 @@ export function myName() {
 export function setMyName(name) {
   storage.set('et.name', String(name || '').slice(0, 40));
 }
+
+// A random id for this phone, so "I've read it" counts it once per note.
+export function deviceId() {
+  let id = storage.get('et.device', null);
+  if (!id) {
+    id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    storage.set('et.device', id);
+  }
+  return id;
+}
+
+export function hasAcked(noticeId) {
+  return storage.get(`et.ack.${noticeId}`, false) === true;
+}
+
+export function markAcked(noticeId) {
+  storage.set(`et.ack.${noticeId}`, true);
+}
