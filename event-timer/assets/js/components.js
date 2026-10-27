@@ -1,5 +1,5 @@
 // Pieces drawn on more than one screen: the clock, the run of show, stations.
-import { clockOf, timelineOf, effective, fmtDuration, fmtClock, fmtDelta, fmtSpan, stationSince } from './time.js';
+import { clockOf, timelineOf, effective, fmtDuration, fmtClock, fmtDelta, fmtSpan, stationSince, stationPhaseOf } from './time.js';
 import { esc, CROWD, ago } from './ui.js';
 
 // When the countdown turns orange: the last two minutes of a segment, or the
@@ -198,7 +198,7 @@ export function stationCard(station, now, { mine = false, online = null } = {}) 
       </div>
       ${crowdChip(station.crowd)}
     </header>
-    <p class="station-phase"><strong>${esc(phase)}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}</p>
+    <p class="station-phase"><strong>${esc(phase)}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}${station.auto ? ' <span class="chip chip-muted">from the program</span>' : ''}</p>
     ${phaseSteps(station)}
     ${station.note ? `<p class="station-note">“${esc(station.note)}”</p>` : ''}
     ${onlineChip(online)}
@@ -219,7 +219,8 @@ export function stationsBoardHtml(view, now, { mine = null, filter = null } = {}
   if (!view.event.stations_enabled || !view.stations.length) {
     return '<p class="empty">This event is not using stations.</p>';
   }
-  const list = view.stations.filter((s) => !filter || s.crowd === filter);
+  const v = effective(view, now);
+  const list = view.stations.map((s) => ({ ...s, ...stationPhaseOf(s, v) })).filter((s) => !filter || s.crowd === filter);
   const online = (id) => (view.presence ? view.presence.stations?.[id] || 0 : null);
   return `${onlineHtml(view)}${stationsSummary(view.stations)}
     <div class="stations">${list.map((s) => stationCard(s, now, { mine: s.id === mine, online: online(s.id) })).join('') || '<p class="empty">No station matches.</p>'}</div>`;
@@ -228,4 +229,26 @@ export function stationsBoardHtml(view, now, { mine = null, filter = null } = {}
 export function logHtml(view) {
   if (!view.log || !view.log.length) return '<p class="empty">Nothing has happened yet.</p>';
   return `<ul class="log">${view.log.map((l) => `<li class="log-${esc(l.kind)}"><time>${fmtClock(l.at)}</time> ${esc(l.text)}</li>`).join('')}</ul>`;
+}
+
+// Master control at a glance: who is online, and every station's step, how
+// full it is and how many facilitators have it open, in one short table.
+export function liveGlanceHtml(view, now) {
+  const on = view.event.stations_enabled && view.stations.length;
+  const v = effective(view, now);
+  const rows = on ? view.stations.map((raw) => {
+    const s = { ...raw, ...stationPhaseOf(raw, v) };
+    const n = view.presence ? view.presence.stations?.[s.id] || 0 : null;
+    return `<tr><th scope="row">${esc(s.name)}</th>
+      <td>${esc(s.phase_index >= 0 ? s.phases[s.phase_index] : 'Not started')}</td>
+      <td>${crowdChip(s.crowd)}</td>
+      <td>${onlineChip(n)}</td></tr>`;
+  }).join('') : '';
+  return `<section class="glance card" aria-label="Live now">
+    <h2 class="panel-title">Live now</h2>
+    ${onlineHtml(view) || '<p class="muted">Checking who is online…</p>'}
+    ${on ? `<div class="glance-scroll"><table class="glance-table">
+      <thead><tr><th>Station</th><th>Step</th><th>Status</th><th>Phones</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>` : ''}
+  </section>`;
 }

@@ -221,3 +221,36 @@ export function stationSince(station, now) {
   if (station.phase_started_at == null) return null;
   return fmtSpan(Math.max(0, now - station.phase_started_at));
 }
+
+// The station step the main program is on, from the current segment's title
+// ("Morning Session 1 · Students entering"). null when it isn't a station step.
+const STEP_WORDS = [
+  [/enter/i, 'enter'],
+  [/introduc/i, 'introduc'],
+  [/wrap|session/i, 'session'],
+  [/exit|transfer/i, 'exit'],
+];
+export function programStep(view) {
+  const ev = view.event;
+  if (ev.status !== 'live' && ev.status !== 'hold') return null;
+  const seg = view.segments[ev.current_index];
+  if (!seg) return null;
+  const cut = seg.title.indexOf(' · ');
+  const part = cut >= 0 ? seg.title.slice(cut + 3) : seg.title;
+  const hit = STEP_WORDS.find(([re]) => re.test(part));
+  if (!hit && cut < 0) return null;
+  return { key: hit ? hit[1] : null, part, group: cut >= 0 ? seg.title.slice(0, cut) : '', segment: seg, startedAt: ev.segment_started_at };
+}
+
+// A station follows the main program: when the program moves on to a step,
+// every station shows that step. A facilitator's own tap after that wins
+// until the program moves again.
+export function stationPhaseOf(station, view) {
+  const own = { phase_index: station.phase_index, phase_started_at: station.phase_started_at, auto: false };
+  const step = programStep(view);
+  if (!step || !step.key || step.startedAt == null) return own;
+  if (station.phase_started_at != null && station.phase_started_at >= step.startedAt) return own;
+  const i = station.phases.findIndex((p) => p.toLowerCase().includes(step.key));
+  if (i < 0) return own;
+  return { phase_index: i, phase_started_at: step.startedAt, auto: true };
+}

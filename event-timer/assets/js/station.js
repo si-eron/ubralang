@@ -3,7 +3,7 @@ import { liveEvent } from './sync.js';
 import { esc, $, toast, prettyCode, confirmDialog, keepAwake, CROWD } from './ui.js';
 import { setHeader, mountEvent, errorText, announce } from './shell.js';
 import { heroHtml, messageHtml, stationsBoardHtml } from './components.js';
-import { stationSince } from './time.js';
+import { stationSince, stationPhaseOf, effective } from './time.js';
 import { stationAccess, setStationAccess, myName, setMyName } from './store.js';
 
 export function stationView(root, code) {
@@ -61,8 +61,14 @@ export function stationView(root, code) {
     }
   }
 
+  // My station, with the step the main program has moved it to.
+  function myStation(view) {
+    const raw = view?.stations.find((x) => x.id === access.id);
+    return raw ? { ...raw, ...stationPhaseOf(raw, effective(view, live.now())) } : null;
+  }
+
   function drawMine(view) {
-    const s = view.stations.find((x) => x.id === access.id);
+    const s = myStation(view);
     if (!s) {
       $('#mine').innerHTML = '<p class="empty">This station was removed by the admin.</p>';
       return;
@@ -83,6 +89,7 @@ export function stationView(root, code) {
 
       <h2 class="eyebrow">Which part of the program is your station on?</h2>
       <p class="mine-phase"><strong>${esc(s.phase_index >= 0 ? s.phases[s.phase_index] : 'Not started')}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}</p>
+      ${s.auto ? '<p class="muted small">Set automatically by the main program. Tap a step below to change it.</p>' : ''}
       ${nextPhase ? `<button class="btn btn-go" data-phase="${s.phase_index + 1}"><span class="go-label">${s.phase_index < 0 ? 'Start' : 'Next'} ›</span><span class="go-sub">${esc(nextPhase)}</span></button>` : ''}
       <div class="phase-list" role="group" aria-label="Choose your step">
         ${s.phases.map((p, i) => `<button class="phase-btn${i === s.phase_index ? ' is-on' : ''}" data-phase="${i}" aria-pressed="${i === s.phase_index}">
@@ -108,7 +115,7 @@ export function stationView(root, code) {
     const p = e.target.closest('[data-phase]');
     if (p) {
       const i = Number(p.dataset.phase);
-      const s = live.view().stations.find((x) => x.id === access.id);
+      const s = myStation(live.view());
       if (s && i !== s.phase_index) {
         update({ phase_index: i }, i >= 0 ? `Now: ${s.phases[i]}` : 'Marked not started');
       }
@@ -116,7 +123,7 @@ export function stationView(root, code) {
     }
     const c = e.target.closest('[data-crowd]');
     if (c) {
-      const s = live.view().stations.find((x) => x.id === access.id);
+      const s = myStation(live.view());
       if (s && s.crowd !== c.dataset.crowd) update({ crowd: c.dataset.crowd }, `Marked ${CROWD[c.dataset.crowd].label.toLowerCase()}`);
       return;
     }

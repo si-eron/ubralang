@@ -127,6 +127,16 @@ many are open, filling, full and closed (tap a count to see only those).
 - The app itself is kept on the phone too, so it opens at a venue with no
   signal and shows the last state it saw.
 
+## The program drives the stations
+
+When Next moves the program onto a station step (a program item such as
+*Morning Session 1 · Students entering*), every station and the Facilitator view
+get it as a full-screen pop-up by themselves, with the time for that step
+counting down. Each station's step on every screen follows along too. A
+facilitator can still tap their own step; that stands until the program moves
+again. Master control's Run tab opens with **Live now**: who is online, and each
+station's step, how full it is and how many phones have it open.
+
 ## Notes to everyone
 
 Master control → **Notes** sends a note that covers the whole screen in very big
