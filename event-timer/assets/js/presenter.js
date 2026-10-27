@@ -66,8 +66,9 @@ export function presenterView(root, code) {
     if (c.status === 'ready') {
       label = 'Not started yet';
       title = view.segments[0]?.title || ev.name;
-      caption = c.startsInMs != null && c.startsInMs > 0 ? 'Starts in' : '';
-      time = c.startsInMs != null && c.startsInMs > 0 ? fmtDuration(c.startsInMs) : '';
+      // No timer until the admin presses Start.
+      caption = '';
+      time = '';
       sub = view.segments[0] ? `${fmtSpan(view.segments[0].duration_s * 1000)} slot` : '';
     } else if (c.status === 'ended') {
       label = 'Finished';

@@ -9,7 +9,7 @@ left, what is next, and whether the program is running on time, ahead, or
 behind.
 
 With **Station Mode**, each station has its own small program, by default
-*Students entering → Guest speaker intro → Session → Students exit*. Only that
+*Students entering → Introduction of guest speaker → Session → Students exit*. Only that
 station's facilitators change it: they post which part it is on and how full
 it is (**Open**, **Filling up**, **Full house**,
 **Closed**), so every other station and every facilitator can see it.
@@ -74,9 +74,8 @@ The big screen does the same with the whole screen.
 ## Station Mode
 
 Turn it on when creating the event, or under **Stations** later. Then, for
-each station, give it a name and where it is. Its steps start as *Students
-entering, Guest speaker intro, Session, Students exit*; change them if a
-station runs differently (one per line). Save, and each station gets its own
+each station, give it a name and where it is. Every station has the same four steps: *Students entering, Introduction of
+guest speaker, Session, Students exit*. Save, and each station gets its own
 **facilitator code**. **Copy link** gives a link that signs the
 facilitator straight in.
 

@@ -401,7 +401,7 @@ function route() {
       // On a phone, in the browser: show how to install it, first.
       setHeader({ title: 'Event Timer' });
       setPill('');
-      cleanup = installView(root, hash, route);
+      cleanup = installView(root, hash);
     } else {
       cleanup = view(root, ...m.slice(1)) || null;
     }

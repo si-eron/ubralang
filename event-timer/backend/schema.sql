@@ -74,7 +74,7 @@ create table if not exists et_stations (
   name             text not null,
   location         text not null default '',
   -- The station's own little program. Facilitators move it along.
-  phases           text[] not null default array['Students entering', 'Guest speaker intro', 'Session', 'Students exit'],
+  phases           text[] not null default array['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'],
   phase_index      int not null default -1,            -- -1 = not started yet
   phase_started_at timestamptz,
   crowd            text not null default 'open'
@@ -88,7 +88,7 @@ create table if not exists et_stations (
 
 -- Databases set up before the four-step default keep their stations as they are;
 -- only stations made from now on start with it.
-alter table et_stations alter column phases set default array['Students entering', 'Guest speaker intro', 'Session', 'Students exit'];
+alter table et_stations alter column phases set default array['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'];
 
 create table if not exists et_log (
   id        bigserial primary key,
@@ -565,7 +565,7 @@ begin
                 case when jsonb_typeof(item->'phases') = 'array' then item->'phases' else '[]'::jsonb end) p
               limit 12) x;
       if cardinality(v_phases) = 0 then
-        v_phases := array['Students entering', 'Guest speaker intro', 'Session', 'Students exit'];
+        v_phases := array['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'];
       end if;
       if v_id is not null and exists (select 1 from et_stations where id = v_id and event_id = e.id) then
         update et_stations set position = i, name = v_title, phases = v_phases,

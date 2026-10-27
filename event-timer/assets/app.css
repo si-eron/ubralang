@@ -580,3 +580,47 @@ body.is-presenter .topbar { display: none; }
   padding: 10px 12px 10px 16px; border-radius: 14px; background: var(--deep); color: #FDFAF4; font-weight: 600;
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.3); border-top: 3px solid var(--gold-bright);
 }
+
+/* ------------------------------------------------------------- stage screens in FCUSR cream
+   The big screen and the presenter view: cream paper and gold, not black.
+   Orange (almost time) and red (over time) still fill the whole screen. */
+
+.stage, .presenter {
+  --tone: #121110; --dim: #57503F;
+  color: #121110;
+  background:
+    radial-gradient(48rem 26rem at 100% 0%, rgb(232 178 60 / 0.22) 0%, transparent 62%),
+    radial-gradient(32rem 18rem at 0% 100%, rgb(194 135 15 / 0.10) 0%, transparent 60%),
+    #FDFAF4;
+}
+.stage { border-top: 8px solid #C2870F; }
+.stage[data-tone="ok"], .presenter[data-tone="ok"] { --tone: #121110; }
+.stage[data-tone="hold"], .presenter[data-tone="hold"] { --tone: #6a4bc4; }
+.stage[data-tone="warn"], .presenter[data-tone="warn"] { background: #c2410c; color: #fff; --tone: #fff; --dim: rgb(255 255 255 / 0.88); border-top-color: transparent; }
+.stage[data-tone="bad"], .presenter[data-tone="bad"] { background: #b91c1c; color: #fff; --tone: #fff; --dim: rgb(255 255 255 / 0.88); border-top-color: transparent; }
+
+.stage-top, .stage-next { color: var(--dim); }
+.stage-label { color: #8A5F06; }
+.stage[data-tone="warn"] .stage-label, .stage[data-tone="bad"] .stage-label { color: #fff; }
+.stage-bar { background: #EFE8DA; }
+.stage-bar span { background: #C2870F; }
+.stage[data-tone="warn"] .stage-bar span, .stage[data-tone="bad"] .stage-bar span { background: #fff; }
+.stage-msg { background: #121110; color: #FDFAF4; }
+.stage-tools .btn { background: #fff; border-color: #E6DDCB; color: #121110; }
+
+.pv-exit { background: #fff; border: 1px solid #E6DDCB; }
+.pv-label { color: #8A5F06; }
+.pv-bar { background: #EFE8DA; }
+.pv-bar span { background: #C2870F; }
+.pv-cue { background: rgb(255 255 255 / 0.22); }
+.pv-notes, .pv-next li { background: #fff; border: 1px solid #E6DDCB; color: #121110; }
+.pv-next li:first-child { background: #FBF1DA; border-color: #E8B23C; }
+.pv-notes .pv-h, .pv-next .pv-when, .pv-next .pv-len, .pv-what span { color: #57503F; }
+.presenter[data-tone="warn"] .pv-exit, .presenter[data-tone="bad"] .pv-exit { background: rgb(255 255 255 / 0.18); border-color: transparent; color: #fff; }
+.presenter[data-tone="warn"] .pv-bar, .presenter[data-tone="bad"] .pv-bar { background: rgb(255 255 255 / 0.3); }
+.notice-gold { background: var(--gold-tint); border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent); color: var(--ink); margin-bottom: 10px; }
+
+/* Feel like an app once it is on the home screen: no pull-to-bounce, no tap flash. */
+html, body { overscroll-behavior-y: none; }
+button, .btn, a { -webkit-tap-highlight-color: transparent; }
+@media (display-mode: standalone) { .topbar { padding-top: calc(env(safe-area-inset-top) + 6px); } }
