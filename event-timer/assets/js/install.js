@@ -3,8 +3,9 @@
 // On a phone, the app works best installed: full screen, its own icon, the
 // screen kept on, and it opens with no signal. So the first time someone
 // opens the site in a phone's browser, they see how to install it, with the
-// steps for their own phone, before anything else. They can still carry on
-// in the browser if they must; that choice lasts until the tab is closed.
+// steps for their own phone, before anything else. On a phone it has to be
+// installed to be used. Computers (the admin's laptop, the projector) are
+// never asked.
 //
 // One thing people trip over: an app added to the home screen does not share
 // what the browser remembered (on iPhone in particular). So if they came in
@@ -67,10 +68,19 @@ function iosBrowser() {
 export function needsInstall(hash) {
   if (platform() === 'desktop' || isStandalone()) return false;
   if (/\/stage$/.test(hash)) return false; // a big screen is not a phone app
-  try {
-    if (sessionStorage.getItem('et.browserOk') === '1') return false;
-  } catch { /* ignore */ }
   return true;
+}
+
+// Messenger, Facebook, Instagram and the like open links in their own
+// browser, which cannot add anything to the home screen.
+function inAppBrowser() {
+  const ua = navigator.userAgent || '';
+  if (/FBAN|FBAV|FB_IAB|FBIOS|Messenger/i.test(ua)) return 'Messenger / Facebook';
+  if (/Instagram/i.test(ua)) return 'Instagram';
+  if (/Line\//i.test(ua)) return 'LINE';
+  if (/MicroMessenger/i.test(ua)) return 'WeChat';
+  if (/TikTok|musical_ly|Bytedance/i.test(ua)) return 'TikTok';
+  return null;
 }
 
 const SHARE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
@@ -78,6 +88,17 @@ const PLUS_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect
 const DOTS_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg>';
 
 function stepsHtml() {
+  const app = inAppBrowser();
+  if (app) {
+    const real = platform() === 'ios' ? 'Safari' : 'Chrome';
+    return `<ol class="steps-install">
+      <li><span class="n">1</span><span>This page is open inside <strong>${esc(app)}</strong>, which can’t add apps. Tap <strong>Copy link</strong> below.</span></li>
+      <li><span class="n">2</span><span>Open <strong>${real}</strong>, paste the link in the address bar, and go.</span></li>
+      <li><span class="n">3</span><span>${real === 'Safari' ? 'Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.' : 'Tap the menu ⋮, then <strong>Install app</strong>.'}</span></li>
+    </ol>
+    <button class="btn btn-block" id="copyLink" type="button">Copy link</button>
+    <p class="field-help">Or tap the ⋯ menu in ${esc(app)} and choose <strong>Open in ${real === 'Safari' ? 'Safari' : 'browser'}</strong>.</p>`;
+  }
   if (platform() === 'ios') {
     const browser = iosBrowser();
     const where = browser === 'Safari'
@@ -99,7 +120,7 @@ function stepsHtml() {
     </ol>`;
 }
 
-export function installView(root, hash, onContinue) {
+export function installView(root, hash) {
   const code = (hash.match(/^#\/e\/([A-Za-z0-9]+)/) || [])[1];
   const phone = platform() === 'ios' ? 'iPhone' : 'Android phone';
   const draw = () => {
@@ -121,15 +142,15 @@ export function installView(root, hash, onContinue) {
             <p class="field-help">Once the app is open, tap <strong>Join</strong> and type this code. (The app on your home screen doesn’t see what this browser had open.)</p>
           </div>` : ''}
         </section>
-        <p class="center"><button class="btn btn-ghost btn-small" id="browserOk">Continue in the browser for now</button></p>
       </div>`;
     root.querySelector('#installNow')?.addEventListener('click', async () => {
       await promptInstall();
       draw();
     });
-    root.querySelector('#browserOk').addEventListener('click', () => {
-      try { sessionStorage.setItem('et.browserOk', '1'); } catch { /* ignore */ }
-      onContinue();
+    root.querySelector('#copyLink')?.addEventListener('click', async () => {
+      const link = location.href;
+      try { await navigator.clipboard.writeText(link); root.querySelector('#copyLink').textContent = 'Link copied ✓'; }
+      catch { window.prompt('Copy this link:', link); }
     });
   };
   draw();

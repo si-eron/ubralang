@@ -7,7 +7,9 @@ import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine } from './time.js
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
 // What a station runs through, unless the admin types something else.
-export const DEFAULT_STEPS = ['Students entering', 'Guest speaker intro', 'Session', 'Students exit'];
+// Every station runs the same four steps, and its facilitators tap through
+// them. (Stations with their own programs may come later.)
+export const DEFAULT_STEPS = ['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'];
 
 const TABS = [
   ['run', 'Run'],
@@ -263,8 +265,8 @@ export function adminView(root, code, initialTab) {
 
   // -------------------------------------------------------- stations editor
 
-  const toStationDraft = (s) => ({ id: s.id, name: s.name, location: s.location, phases: s.phases.join('\n') });
-  const newStation = (n) => ({ id: null, name: `Station ${n}`, location: '', phases: DEFAULT_STEPS.join('\n') });
+  const toStationDraft = (s) => ({ id: s.id, name: s.name, location: s.location });
+  const newStation = (n) => ({ id: null, name: `Station ${n}`, location: '' });
 
   function drawStationsEditor(view) {
     const ev = view.event;
@@ -273,14 +275,13 @@ export function adminView(root, code, initialTab) {
       <label class="check toggle"><input type="checkbox" id="stationsOn" ${ev.stations_enabled ? 'checked' : ''}>
         <span><strong>Use stations at this event</strong><br><span class="muted">Each station gets its own facilitator code. Only that station’s facilitators change it: which part of its program it is on, and whether it is full. Everyone sees every station.</span></span></label>
       <div ${ev.stations_enabled ? '' : 'hidden'}>
+        <p class="notice notice-gold">Every station’s facilitators get the same four buttons: <strong>Students entering → Introduction of guest speaker → Session → Students exit</strong>, plus whether the station is full.</p>
         <ol class="edit-list" id="stationList">${stationsDraft.map((s, i) => `
           <li class="edit-row" data-i="${i}">
             <span class="edit-num" aria-hidden="true">${i + 1}</span>
             <div class="edit-fields">
               <input data-f="name" value="${esc(s.name)}" maxlength="60" placeholder="Station name" aria-label="Station ${i + 1} name">
               <input data-f="location" value="${esc(s.location)}" maxlength="80" placeholder="Where (optional)" aria-label="Station ${i + 1} location">
-              <label class="field"><span class="field-help">Its program, one step per line (the facilitators move through these)</span>
-                <textarea data-f="phases" rows="3" aria-label="Station ${i + 1} steps">${esc(s.phases)}</textarea></label>
             </div>
             <div class="edit-tools">
               <button class="btn btn-small btn-ghost" data-move="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
@@ -335,7 +336,7 @@ export function adminView(root, code, initialTab) {
       ...(s.id ? { id: s.id } : {}),
       name: s.name,
       location: s.location || '',
-      phases: s.phases.split('\n').map((p) => p.trim()).filter(Boolean),
+      phases: DEFAULT_STEPS,
     }));
     const btn = $('#stationsSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }

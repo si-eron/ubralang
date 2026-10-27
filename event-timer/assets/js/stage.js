@@ -57,9 +57,10 @@ export function stageView(root, code) {
     let time = '';
     let next = '';
     if (c.status === 'ready') {
+      // No timer until the admin presses Start.
       label = 'Starting soon';
       title = view.segments[0]?.title || ev.name;
-      time = c.startsInMs != null && c.startsInMs > 0 ? fmtDuration(c.startsInMs) : '';
+      time = '';
     } else if (c.status === 'ended') {
       label = 'Thank you';
       title = 'Program ended';

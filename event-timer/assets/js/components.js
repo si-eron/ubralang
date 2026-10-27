@@ -42,18 +42,12 @@ export function heroHtml(view, now, { compact = false } = {}) {
   if (clock.status === 'ready') {
     label = 'Not started yet';
     title = view.segments.length ? `First: ${view.segments[0].title}` : 'No program yet';
-    if (clock.startsInMs != null && clock.startsInMs > 0) {
-      caption = 'Starts in';
-      big = fmtDuration(clock.startsInMs);
-      sub = `Planned for ${fmtClock(ev.planned_start)}`;
-    } else if (clock.startsInMs != null) {
-      caption = 'Starting late by';
-      big = fmtDuration(-clock.startsInMs);
-      sub = `Was planned for ${fmtClock(ev.planned_start)}`;
-    } else {
-      big = '';
-      sub = 'The clock starts when the admin presses Start.';
-    }
+    // No clock until the admin presses Start: not a countdown to the start,
+    // and not "behind" before anything has begun.
+    big = '';
+    sub = ev.planned_start != null
+      ? `Planned to start at ${fmtClock(ev.planned_start)}. The clock starts when the admin presses Start.`
+      : 'The clock starts when the admin presses Start.';
   } else if (clock.status === 'ended') {
     label = 'Finished';
     title = 'The program has ended';
@@ -78,9 +72,9 @@ export function heroHtml(view, now, { compact = false } = {}) {
     ? `<p class="hero-next"><span class="eyebrow">${clock.status === 'ready' ? 'Then' : 'Next'}</span> ${esc(upcoming.title)} <span class="hero-dim">· ${fmtSpan(upcoming.duration_s * 1000)}</span></p>`
     : '';
   const facts = [];
-  if (delta && clock.status !== 'ended') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
+  if (delta && clock.status !== 'ended' && clock.status !== 'ready') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
   if (delta && clock.status === 'ended') facts.push(`<span class="chip chip-${delta.tone}">Finished ${esc(delta.label.toLowerCase())}</span>`);
-  if (clock.projectedEnd && clock.status !== 'ended' && clock.count) facts.push(`<span class="hero-dim">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
+  if (clock.projectedEnd && clock.status !== 'ended' && clock.status !== 'ready' && clock.count) facts.push(`<span class="hero-dim">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
 
   return `
     <section class="hero hero-${tone}${compact ? ' hero-compact' : ''}" aria-label="Program clock">

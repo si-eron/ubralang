@@ -219,7 +219,7 @@ test('stations: each code opens one station; admin opens all', async () => {
     ],
   });
   assert.equal(made.event.stations_enabled, true);
-  assert.deepEqual(made.stations[1].phases, ['Students entering', 'Guest speaker intro', 'Session', 'Students exit']);
+  assert.deepEqual(made.stations[1].phases, ['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit']);
   const { codes } = await ev.admin('codes');
   const [one, two] = made.stations;
 

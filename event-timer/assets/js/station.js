@@ -87,8 +87,8 @@ export function stationView(root, code) {
       <div class="phase-list" role="group" aria-label="Choose your step">
         ${s.phases.map((p, i) => `<button class="phase-btn${i === s.phase_index ? ' is-on' : ''}" data-phase="${i}" aria-pressed="${i === s.phase_index}">
           <span class="phase-n">${i + 1}</span>${esc(p)}</button>`).join('')}
-        <button class="phase-btn phase-reset${s.phase_index < 0 ? ' is-on' : ''}" data-phase="-1" aria-pressed="${s.phase_index < 0}">Not started</button>
       </div>
+      ${s.phase_index >= 0 ? '<p class="center"><button class="btn btn-ghost btn-small" data-phase="-1">Reset to “not started”</button></p>' : ''}
 
       <h2 class="eyebrow">Is your station full?</h2>
       <div class="crowd-grid" role="group" aria-label="How full is your station">

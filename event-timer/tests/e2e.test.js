@@ -216,11 +216,17 @@ test('on a phone, it asks to be installed first, with that phone’s steps and t
   await android.page.goto(url(`#/e/${made.code}`));
   await android.page.waitForSelector('.install-gate');
   assert.match(await android.page.textContent('.install-gate'), /Install app/);
-  // They can still carry on in the browser, and are not asked again in this tab.
-  await android.page.click('#browserOk');
-  await android.page.waitForSelector('.page-event .hero');
+  // On a phone it has to be installed: no way round it, even after a reload.
+  assert.equal(await android.page.locator('#browserOk').count(), 0);
   await android.page.reload();
-  await android.page.waitForSelector('.page-event .hero');
+  await android.page.waitForSelector('.install-gate');
+
+  // Opened from Messenger: told to open it in the phone's real browser first.
+  const messenger = await phone({ ...playwright.devices['iPhone 13'], userAgent: `${playwright.devices['iPhone 13'].userAgent} [FBAN/MessengerForiOS;FBAV/450.0]` });
+  await messenger.page.goto(url(`#/e/${made.code}`));
+  await messenger.page.waitForSelector('.install-gate #copyLink');
+  assert.match(await messenger.page.textContent('.install-gate'), /Safari/);
+  await messenger.ctx.close();
 
   // A computer is never stopped.
   const desk = await phone();
@@ -258,6 +264,26 @@ test('the home page has a place to type the admin key, and it opens master contr
   await p.page.click('#staffForm button[type=submit]');
   await p.page.waitForSelector('#controls');
   assert.match(await p.page.evaluate(() => location.hash), /\/admin/);
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});
+
+test('before the admin presses Start, no screen shows a timer', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Not yet', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('program', { segments: [{ title: 'Registration', duration_s: 600 }] });
+  await admin('event', { planned_start: Date.now() + 2 * 3_600_000 }); // two hours from now
+  const p = await phone();
+  await p.page.goto(url(`#/e/${made.code}`));
+  await p.page.waitForSelector('.hero-idle');
+  assert.equal(await p.page.locator('.hero-time').count(), 0, 'no countdown on the phone');
+  assert.equal(await p.page.locator('.hero-facts').count(), 0, 'no "behind" or "ends about"');
+  await p.page.goto(url(`#/e/${made.code}/stage`));
+  await p.page.waitForSelector('#stageTitle:has-text("Registration")');
+  assert.equal(await p.page.isVisible('#stageTime'), false, 'no countdown on the big screen');
+  await p.page.goto(url(`#/e/${made.code}/presenter`));
+  await p.page.waitForSelector('#pvTitle:has-text("Registration")');
+  assert.equal(await p.page.isVisible('#pvTime'), false, 'no countdown for the presenter');
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
