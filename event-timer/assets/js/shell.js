@@ -106,3 +106,58 @@ export function shareDialog(code, name) {
   dlg.showModal();
 }
 
+
+// "Present", as in Canva: go full screen first (it needs the tap), then show
+// the presenter view or the big screen in this same window. Phones that
+// cannot go full screen (iPhone) still get the view; installed, it is full
+// screen anyway.
+export async function present(code, view) {
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    }
+  } catch { /* not allowed here: carry on in the window */ }
+  location.hash = `#/e/${code}/${view}`;
+}
+
+export function leavePresent(code) {
+  if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
+  location.hash = `#/e/${code}`;
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-present]');
+  if (!b) return;
+  const m = location.hash.match(/^#\/e\/([A-Za-z0-9]+)/);
+  if (m) present(m[1], b.dataset.present);
+});
+
+export function goLink(c) {
+  const base = location.href.split('#')[0].split('?')[0];
+  return `${base}#/go/${c}`;
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-copylink]');
+  if (!b) return;
+  copyText(goLink(b.dataset.copylink), 'Link copied');
+});
+
+// The three kinds of code, each with a link that signs people straight in.
+export function linksHtml(code, key, stations) {
+  const row = (label, help, c, secret = false) => `
+    <li class="link-row${secret ? ' link-secret' : ''}">
+      <div>
+        <p class="eyebrow">${label}</p>
+        <p class="bigcode bigcode-small">${esc(prettyCode(c))}</p>
+        <p class="field-help">${help}</p>
+      </div>
+      <button class="btn btn-small" type="button" data-copylink="${esc(c)}">Copy link</button>
+    </li>`;
+  return `<ul class="links">
+    ${row('Facilitator view · everyone', 'Follow the live program. Changes nothing.', code)}
+    ${stations.map((s) => row(`Station control · ${esc(s.name)}`, 'For this station’s facilitators: their buttons.', s.code)).join('')}
+    ${key ? row('Master control · keep private', 'Runs the whole program. Only for the admin.', key, true) : ''}
+  </ul>`;
+}
+

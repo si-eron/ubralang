@@ -306,3 +306,35 @@ test('one box for any code: it says whether it is the admin key or which station
 function prettyish(code) {
   return `${code.slice(0, 3).toLowerCase()} ${code.slice(3)}`;
 }
+
+test('any code on its own says where it leads: event, station or master control', async () => {
+  const ev = await newEvent();
+  const made = await ev.admin('stations', { stations: [{ name: 'A' }, { name: 'B' }] });
+  const { codes } = await ev.admin('codes');
+  const enter = (k) => stack.rpc('et_enter', { p_key: k });
+
+  assert.deepEqual(await pick(enter(ev.code.toLowerCase())), { role: 'viewer', code: ev.code });
+  const st = await enter(`${codes[1].code.slice(0, 3)}-${codes[1].code.slice(3)}`);
+  assert.deepEqual([st.role, st.code, st.station], ['station', ev.code, made.stations[1].id]);
+  assert.deepEqual(await pick(enter(ev.key)), { role: 'admin', code: ev.code });
+  assert.equal((await enter('ZZZZZZ')).error, 'not_found');
+  assert.equal((await enter('')).error, 'not_found');
+
+  // A new admin key moves with it; the old one leads nowhere.
+  const fresh = await ev.admin('new_key');
+  assert.equal((await enter(ev.key)).error, 'not_found');
+  assert.equal((await enter(fresh.key)).role, 'admin');
+});
+
+test('an event made before the one-box sign-in learns its admin key the next time it is used', async () => {
+  const ev = await newEvent();
+  await stack.pool.query('update et_events set admin_lookup = null where code = $1', [ev.code]);
+  assert.equal((await stack.rpc('et_enter', { p_key: ev.key })).error, 'not_found');
+  await ev.admin('verify');
+  assert.equal((await stack.rpc('et_enter', { p_key: ev.key })).role, 'admin');
+});
+
+async function pick(p) {
+  const r = await p;
+  return { role: r.role, code: r.code };
+}

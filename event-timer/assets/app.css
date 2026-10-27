@@ -624,3 +624,20 @@ body.is-presenter .topbar { display: none; }
 html, body { overscroll-behavior-y: none; }
 button, .btn, a { -webkit-tap-highlight-color: transparent; }
 @media (display-mode: standalone) { .topbar { padding-top: calc(env(safe-area-inset-top) + 6px); } }
+
+/* ------------------------------------------------------------- one code box, links */
+.doors { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.door { display: inline-block; min-width: 104px; margin-right: 6px; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; text-align: center; }
+.door-view { background: var(--surface-2); color: var(--ink); }
+.door-station { background: var(--gold-tint); color: var(--gold-deep); }
+.door-admin { background: var(--deep); color: #FDFAF4; }
+#codeBox { font: 600 22px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; }
+.recent-main { flex: 1; display: grid; gap: 6px; padding: 10px 0; min-width: 0; }
+.recent-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.recent-links .chip { text-decoration: none; font-size: 13px; padding: 4px 10px; }
+.links { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.link-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.link-secret { border-color: var(--deep); background: #FBF8F2; }
+.link-secret .bigcode { color: var(--bad); }
+.station-offer { display: grid; gap: 8px; margin-top: 14px; }
+.link-row .btn { white-space: nowrap; flex: none; }

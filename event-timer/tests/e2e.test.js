@@ -255,15 +255,49 @@ test('presenter view: time left, notes, what is next, and a wrap-up cue', { skip
   await p.ctx.close();
 });
 
-test('the home page has a place to type the admin key, and it opens master control', { skip }, async () => {
-  const made = await stack.rpc('et_create', { p_name: 'Sign-in check', p_venue: '' });
+test('one code box: event code, station code and admin key each open their own screen', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'One box', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('event', { stations_enabled: true });
+  await admin('stations', { stations: [{ name: 'Faith' }] });
+  const { codes } = await admin('codes');
+
+  const tryCode = async (typed, expectSelector) => {
+    const p = await phone();
+    await p.page.goto(url('#/'));
+    await p.page.fill('#codeBox', typed);
+    await p.page.click('#enterForm button[type=submit]');
+    await p.page.waitForSelector(expectSelector);
+    assert.deepEqual(p.page.errors, []);
+    await p.ctx.close();
+  };
+  await tryCode(made.code.toLowerCase(), '.page-event .hero');                    // Facilitator view
+  await tryCode(`${codes[0].code.slice(0, 3)} ${codes[0].code.slice(3)}`, '.crowd-grid'); // Station control
+  await tryCode(`${made.key.slice(0, 4)}-${made.key.slice(4)}`, '#controls');      // Master control
+
+  // The same, as links that sign people straight in.
   const p = await phone();
-  await p.page.goto(url('#/'));
-  await p.page.fill('#staffForm input[name=code]', made.code.toLowerCase());
-  await p.page.fill('#staffForm input[name=key]', `${made.key.slice(0, 4)}-${made.key.slice(4)}`);
-  await p.page.click('#staffForm button[type=submit]');
+  await p.page.goto(url(`#/go/${codes[0].code}`));
+  await p.page.waitForSelector('.crowd-grid');
+  await p.page.goto(url(`#/go/${made.key}`));
   await p.page.waitForSelector('#controls');
-  assert.match(await p.page.evaluate(() => location.hash), /\/admin/);
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});
+
+test('Station Mode can be switched on after the event is made, from the Run tab', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Stations later', p_venue: '' });
+  const p = await phone();
+  await p.page.goto(url(`#/go/${made.key}`));
+  await p.page.waitForSelector('#stationsOnRun');
+  await p.page.click('#stationsOnRun');
+  await p.page.waitForSelector('#stationList .edit-row');
+  await p.page.click('#stationsSaveBtn');
+  await p.page.waitForSelector('.codes li');
+  const st = await stack.rpc('et_state', { p_code: made.code, p_since: 0 });
+  assert.equal(st.event.stations_enabled, true);
+  assert.equal(st.stations.length, 3);
+  assert.deepEqual(st.stations[0].phases, ['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit']);
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
