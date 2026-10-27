@@ -96,6 +96,9 @@ export function presenterView(root, code) {
       title = c.segment?.title || '';
       time = fmtDuration(Math.abs(c.remainingMs));
       sub = `${fmtSpan(c.allotMs)} slot · started ${fmtClock(ev.segment_started_at)}`;
+      if (c.nextStart != null && c.nextPlannedStart != null && c.nextStart - c.nextPlannedStart >= 60_000) {
+        sub += ` · Schedule updated: next starts ${fmtClock(c.nextStart)} instead of ${fmtClock(c.nextPlannedStart)}`;
+      }
     }
     $('#pvLabel').textContent = label;
     $('#pvTitle').textContent = title;

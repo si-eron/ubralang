@@ -98,3 +98,37 @@ test('countdown: time left until the planned start, then the first segment from 
   assert.equal(after.remainingMs, 8 * MIN);
   assert.deepEqual(timelineOf(s, T + 2 * MIN).map((r) => r.state), ['now', 'upcoming']);
 });
+
+test('overtime: a flexible break shrinks so the next session starts as planned', () => {
+  // Talk 30 (planned 0–30), Break 15 flexible (30–45), Session 30 (45–75). The talk runs 6 min over.
+  const s = snap({ status: 'live', current_index: 0, segment_started_at: T, started_at: T, planned_start: T }, [30, 15, 30]);
+  s.segments[1].flexible = true;
+  const now = T + 36 * MIN;
+  const c = clockOf(s, now);
+  assert.equal(c.remainingMs, -6 * MIN);
+  assert.equal(c.nextStart, T + 36 * MIN, 'the break starts 6 min late…');
+  assert.equal(c.projectedEnd, T + 75 * MIN, '…but the day still ends on time');
+  assert.equal(c.deltaMs, 0);
+  const rows = timelineOf(s, now);
+  assert.equal(rows[1].shrinkMs, 6 * MIN, 'the break is 6 min shorter');
+  assert.equal(rows[2].expectedStart, T + 45 * MIN, 'the next session starts as planned');
+  assert.equal(rows[2].lateMs, 0);
+});
+
+test('overtime: a break shrinks at most to half; with no flexible items everything slides', () => {
+  const s = snap({ status: 'live', current_index: 0, segment_started_at: T, started_at: T, planned_start: T }, [30, 10, 30]);
+  s.segments[1].flexible = true;
+  const late = timelineOf(s, T + 45 * MIN); // 15 min over: the 10-min break can only give 5
+  assert.equal(late[1].shrinkMs, 5 * MIN);
+  assert.equal(late[2].lateMs, 10 * MIN);
+  s.segments[1].flexible = false;
+  assert.equal(timelineOf(s, T + 45 * MIN)[2].lateMs, 15 * MIN, 'nothing absorbs it');
+});
+
+test('a flexible break that itself starts late is shorter on the clock', () => {
+  const s = snap({ status: 'live', current_index: 1, segment_started_at: T + 36 * MIN, started_at: T, planned_start: T }, [30, 15, 30]);
+  s.segments[1].flexible = true;
+  const c = clockOf(s, T + 36 * MIN);
+  assert.equal(c.allotMs, 9 * MIN, 'ends at its planned 45 min mark');
+  assert.equal(c.shrunkMs, 6 * MIN);
+});

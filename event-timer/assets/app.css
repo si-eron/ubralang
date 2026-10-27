@@ -710,3 +710,6 @@ body.has-notice { overflow: hidden; }
 .online-now { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--line); font-size: 14px; color: var(--ink-2); }
 .online-now .online-dot { color: var(--ok); }
 .online-now strong { color: var(--ink); }
+.hero-sched { margin-top: 10px; padding: 8px 12px; border-radius: 10px; background: var(--gold-tint); color: var(--ink); font-size: 15px; font-weight: 600; }
+.hero-warn .hero-sched, .hero-bad .hero-sched { background: rgb(255 255 255 / 0.2); color: #fff; }
+.flex-check { font-size: 13px; }

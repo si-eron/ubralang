@@ -83,6 +83,16 @@ export function heroHtml(raw, now, { compact = false } = {}) {
   const facts = [];
   if (delta && !notYet && clock.status !== 'ended') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
   if (delta && clock.status === 'ended') facts.push(`<span class="chip chip-${delta.tone}">Finished ${esc(delta.label.toLowerCase())}</span>`);
+  // Schedule update: the next item's new time, everywhere at once.
+  let sched = '';
+  if (clock.nextStart != null && clock.nextPlannedStart != null && !notYet) {
+    const late = clock.nextStart - clock.nextPlannedStart;
+    if (late >= 60_000) {
+      sched = `<p class="hero-sched">Schedule updated: running ${esc(fmtSpan(late))} late · next starts <strong>${esc(fmtClock(clock.nextStart))}</strong> instead of ${esc(fmtClock(clock.nextPlannedStart))}${clock.deltaMs != null && clock.deltaMs < 60_000 ? ' · breaks shorten to finish on time' : ''}</p>`;
+    } else if (clock.shrunkMs >= 60_000) {
+      sched = `<p class="hero-sched">This break is ${esc(fmtSpan(clock.shrunkMs))} shorter to catch up · next starts ${esc(fmtClock(clock.nextStart))} as planned</p>`;
+    }
+  }
   if (clock.projectedEnd && clock.status !== 'ended' && clock.status !== 'ready' && clock.count) facts.push(`<span class="hero-dim">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
 
   return `
@@ -94,6 +104,7 @@ export function heroHtml(raw, now, { compact = false } = {}) {
       ${sub ? `<p class="hero-sub">${esc(sub)}</p>` : ''}
       ${progress}
       ${compact ? '' : next}
+      ${sched}
       ${facts.length && !compact ? `<div class="hero-facts">${facts.join('')}</div>` : ''}
     </section>`;
 }
@@ -121,10 +132,11 @@ export function programHtml(view, now, { admin = false } = {}) {
     } else if (r.state === 'skipped') {
       when = 'Skipped';
     } else if (r.expectedStart != null) {
-      when = `About ${fmtClock(r.expectedStart)}`;
-      if (r.plannedStart != null && Math.abs(r.expectedStart - r.plannedStart) >= 60_000) {
-        when += ` <span class="muted">(planned ${fmtClock(r.plannedStart)})</span>`;
+      when = `<strong>${fmtClock(r.expectedStart)}</strong>`;
+      if (r.plannedStart != null && Math.abs(r.lateMs ?? 0) >= 60_000) {
+        when += ` <span class="${r.lateMs > 0 ? 'over' : 'under'}">(planned ${fmtClock(r.plannedStart)}, ${r.lateMs > 0 ? '+' : '−'}${fmtSpan(r.lateMs)})</span>`;
       }
+      if (r.shrinkMs >= 60_000) when += ` <span class="chip chip-warn">${fmtSpan(r.shrinkMs)} shorter to catch up</span>`;
     } else if (r.plannedStart != null) {
       when = fmtClock(r.plannedStart);
     }

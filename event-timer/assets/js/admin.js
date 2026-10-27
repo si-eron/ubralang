@@ -219,7 +219,9 @@ export function adminView(root, code, initialTab) {
 
   // -------------------------------------------------------- program editor
 
-  const toDraft = (s) => ({ id: s.id, title: s.title, minutes: +(s.duration_s / 60).toFixed(2), lead: s.lead, notes: s.notes });
+  const toDraft = (s) => ({ id: s.id, title: s.title, minutes: +(s.duration_s / 60).toFixed(2), lead: s.lead, notes: s.notes, flexible: Boolean(s.flexible) });
+  // Breaks, lunch and transfers can shrink to win back overtime (see lengthOf in time.js).
+  const looksFlexible = (title) => /break|lunch|merienda|snack|transfer|buffer|interval|recess|free time/i.test(title || '');
 
   function drawProgramEditor(view) {
     const ev = view.event;
@@ -239,6 +241,7 @@ export function adminView(root, code, initialTab) {
               <input data-f="lead" value="${esc(s.lead)}" maxlength="80" placeholder="Who’s on (optional)" aria-label="Segment ${i + 1} person in charge">
             </div>
             <textarea data-f="notes" rows="1" maxlength="500" placeholder="Notes for the admin (optional)" aria-label="Segment ${i + 1} notes">${esc(s.notes)}</textarea>
+            <label class="radio flex-check"><input type="checkbox" data-f="flexible" ${(s.flexible ?? looksFlexible(s.title)) ? 'checked' : ''}> Can shrink to catch up <span class="muted">(breaks, lunch, transfers: gets shorter when something runs over)</span></label>
             ${s.id && s.id === currentId ? '<p class="field-help">On now: it can be edited but not deleted.</p>' : ''}
           </div>
           <div class="edit-tools">
@@ -275,6 +278,7 @@ export function adminView(root, code, initialTab) {
       duration_s: minutesToSeconds(s.minutes),
       lead: s.lead || '',
       notes: s.notes || '',
+      flexible: s.flexible ?? looksFlexible(s.title),
     }));
     const btn = $('#programSaveBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -719,7 +723,7 @@ export function adminView(root, code, initialTab) {
     const row = e.target.closest('.edit-row');
     if (!f || !row) return;
     const i = Number(row.dataset.i);
-    if (tab === 'program' && programDraft) { programDraft[i][f] = e.target.value; markProgramDirty(); }
+    if (tab === 'program' && programDraft) { programDraft[i][f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; markProgramDirty(); }
     if (tab === 'stations' && stationsDraft) { stationsDraft[i][f] = e.target.value; markStationsDirty(); }
   });
 
