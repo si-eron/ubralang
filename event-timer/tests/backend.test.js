@@ -471,3 +471,9 @@ test('the public key cannot read who is online directly', async () => {
     client.release();
   }
 });
+
+test('program items keep their "can shrink to catch up" setting', async () => {
+  const ev = await newEvent();
+  const saved = await ev.admin('program', { segments: [{ title: 'Talk', duration_s: 1800 }, { title: 'Lunch', duration_s: 3600, flexible: true }] });
+  assert.deepEqual(saved.segments.map((s) => s.flexible), [false, true]);
+});

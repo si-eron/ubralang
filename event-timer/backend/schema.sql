@@ -77,6 +77,10 @@ create table if not exists et_segments (
   constraint et_segments_order unique (event_id, position) deferrable initially deferred
 );
 
+-- A break, lunch or transfer that may get shorter to win back time lost to
+-- overtime (never below half). Screens work out the adjusted times from it.
+alter table et_segments add column if not exists flexible boolean not null default false;
+
 create table if not exists et_stations (
   id               uuid primary key default gen_random_uuid(),
   event_id         uuid not null references et_events(id) on delete cascade,
@@ -366,7 +370,7 @@ language sql volatile as $$
     'segments', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', s.id, 'position', s.position, 'title', s.title, 'duration_s', s.duration_s,
-        'lead', s.lead, 'notes', s.notes,
+        'lead', s.lead, 'notes', s.notes, 'flexible', s.flexible,
         'started_at', et_ms(s.started_at), 'ended_at', et_ms(s.ended_at)
       ) order by s.position)
       from et_segments s where s.event_id = e.id), '[]'::jsonb),
@@ -701,12 +705,13 @@ begin
       v_dur := greatest(0, least(86400, coalesce(et_int(item->>'duration_s'), 300)));
       if v_id is not null and exists (select 1 from et_segments where id = v_id and event_id = e.id) then
         update et_segments set position = i, title = v_title, duration_s = v_dur,
+               flexible = coalesce((item->>'flexible')::boolean, false),
                lead = left(btrim(coalesce(item->>'lead', '')), 80),
                notes = left(btrim(coalesce(item->>'notes', '')), 500)
          where id = v_id;
       else
-        insert into et_segments (event_id, position, title, duration_s, lead, notes)
-        values (e.id, i, v_title, v_dur,
+        insert into et_segments (event_id, position, title, duration_s, flexible, lead, notes)
+        values (e.id, i, v_title, v_dur, coalesce((item->>'flexible')::boolean, false),
                 left(btrim(coalesce(item->>'lead', '')), 80),
                 left(btrim(coalesce(item->>'notes', '')), 500))
         returning id into v_id;

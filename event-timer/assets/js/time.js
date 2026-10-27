@@ -21,6 +21,16 @@ export function effective(snapshot, now) {
   };
 }
 
+// How long an item really gets. A flexible one (a break, lunch, transfer)
+// that starts late shrinks to end at its planned time, so the day gets back
+// on schedule, but never below half its planned length. Every screen works
+// this out the same way, so everyone sees the same adjusted times.
+export function lengthOf(seg, plannedEnd, start) {
+  const full = seg.duration_s * 1000;
+  if (!seg.flexible || plannedEnd == null || start == null) return full;
+  return Math.max(full / 2, Math.min(full, plannedEnd - start));
+}
+
 // The live clock for the segment on stage.
 export function clockOf(raw, now) {
   const snapshot = effective(raw, now);
@@ -31,7 +41,6 @@ export function clockOf(raw, now) {
   const next = index + 1 < segments.length ? segments[index + 1] : null;
   const total = segments.reduce((sum, s) => sum + s.duration_s * 1000, 0);
   const before = (i) => segments.slice(0, Math.max(0, i)).reduce((sum, s) => sum + s.duration_s * 1000, 0);
-  const after = (i) => segments.slice(i + 1).reduce((sum, s) => sum + s.duration_s * 1000, 0);
 
   const out = {
     status: ev.status,
@@ -77,7 +86,10 @@ export function clockOf(raw, now) {
     const until = ev.status === 'hold' && ev.hold_started_at != null ? ev.hold_started_at : now;
     out.heldMs = ev.hold_total_ms + (ev.status === 'hold' && ev.hold_started_at != null ? now - ev.hold_started_at : 0);
     out.elapsedMs = Math.max(0, until - ev.segment_started_at - ev.hold_total_ms);
-    out.allotMs = Math.max(0, (segment.duration_s + ev.segment_extra_s) * 1000);
+    const plannedEndHere = base != null ? base + before(index) + segment.duration_s * 1000 : null;
+    const length = lengthOf(segment, plannedEndHere, ev.segment_started_at);
+    out.shrunkMs = segment.duration_s * 1000 - length;
+    out.allotMs = Math.max(0, length + ev.segment_extra_s * 1000);
     out.remainingMs = out.allotMs - out.elapsedMs;
     out.overtime = out.remainingMs < 0;
     out.progress = out.allotMs > 0 ? Math.min(1, out.elapsedMs / out.allotMs) : 1;
@@ -86,7 +98,14 @@ export function clockOf(raw, now) {
   if (ev.status === 'ended') {
     out.projectedEnd = ev.ended_at;
   } else if (segment) {
-    out.projectedEnd = now + Math.max(0, out.remainingMs) + after(index);
+    // Walk forward: flexible items ahead shrink to catch up.
+    let at = now + Math.max(0, out.remainingMs);
+    for (let j = index + 1; j < segments.length; j += 1) {
+      const pEnd = base != null ? base + before(j) + segments[j].duration_s * 1000 : null;
+      if (j === index + 1) { out.nextStart = at; out.nextPlannedStart = base != null ? base + before(j) : null; }
+      at += lengthOf(segments[j], pEnd, at);
+    }
+    out.projectedEnd = at;
   }
   if (out.plannedEnd != null && out.projectedEnd != null) {
     out.deltaMs = out.projectedEnd - out.plannedEnd;
@@ -132,7 +151,10 @@ export function timelineOf(raw, now) {
     }
     if (row.state === 'upcoming' && (notYet || i > ev.current_index)) {
       row.expectedStart = expected;
-      expected += s.duration_s * 1000;
+      const len = notYet ? s.duration_s * 1000 : lengthOf(s, planned, expected); // planned is now this item's planned end
+      row.shrinkMs = s.duration_s * 1000 - len;
+      row.lateMs = row.plannedStart != null ? expected - row.plannedStart : 0;
+      expected += len;
     }
     return row;
   });

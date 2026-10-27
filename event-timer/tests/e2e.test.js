@@ -610,3 +610,20 @@ test('who is online: open screens count, closed ones drop off at once', { skip }
   for (const x of [a, st, v]) assert.deepEqual(x.page.errors, []);
   await Promise.all([a.ctx.close(), st.ctx.close(), v.ctx.close()]);
 });
+
+test('overtime: every screen shows the updated time, and a flexible break wins it back', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Catch up', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  // Talk 1 min, Break 10 min (can shrink), Session 10 min. Planned from 2 min ago, so the talk is already 1 min over.
+  await admin('program', { segments: [{ title: 'Talk', duration_s: 60 }, { title: 'Break', duration_s: 600, flexible: true }, { title: 'Session', duration_s: 600 }] });
+  await admin('event', { planned_start: Date.now() - 120_000 });
+  await admin('start', { from: -1, now: true });
+  await stack.pool.query("update et_events set segment_started_at = now() - interval '2 minutes', started_at = now() - interval '2 minutes', rev = rev + 1 where code = $1", [made.code]);
+  const v = await phone();
+  await v.page.goto(url(`#/e/${made.code}`));
+  await v.page.waitForSelector('.hero-sched:has-text("Schedule updated")', { timeout: 8000 });
+  assert.match(await v.page.textContent('.hero-sched'), /breaks shorten to finish on time/);
+  assert.match(await v.page.textContent('.runsheet'), /shorter to catch up/);
+  assert.deepEqual(v.page.errors, []);
+  await v.ctx.close();
+});
