@@ -132,3 +132,23 @@ test('a flexible break that itself starts late is shorter on the clock', () => {
   assert.equal(c.allotMs, 9 * MIN, 'ends at its planned 45 min mark');
   assert.equal(c.shrunkMs, 6 * MIN);
 });
+
+test('a station follows the main program, and a later facilitator tap wins', async () => {
+  const { stationPhaseOf, programStep } = await import('../assets/js/time.js');
+  const phases = ['Students entering', 'Introduction of guest speaker', 'Session', 'Students exit'];
+  const view = (title, at) => ({
+    event: { status: 'live', current_index: 0, segment_started_at: at },
+    segments: [{ id: 's1', title, duration_s: 300 }],
+  });
+  const st = { phases, phase_index: -1, phase_started_at: null };
+  assert.equal(stationPhaseOf(st, view('Morning Session 1 · Students entering', 1000)).phase_index, 0);
+  assert.equal(stationPhaseOf(st, view('Morning Session 1 · Introduction of guest speaker', 1000)).phase_index, 1);
+  assert.equal(stationPhaseOf(st, view('Morning Session 1 · Wrap up', 1000)).phase_index, 2);
+  assert.equal(stationPhaseOf(st, view('Morning Session 1 · Students exit & transfer to next station', 1000)).phase_index, 3);
+  // The facilitator tapped after the program moved: theirs stands.
+  const tapped = { phases, phase_index: 2, phase_started_at: 2000 };
+  assert.deepEqual(stationPhaseOf(tapped, view('Morning Session 1 · Students entering', 1000)).auto, false);
+  // Not a station step: nothing changes, no pop-up.
+  assert.equal(programStep(view('Greetings', 1000)), null);
+  assert.equal(stationPhaseOf(st, view('Greetings', 1000)).phase_index, -1);
+});

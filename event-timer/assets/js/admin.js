@@ -2,7 +2,7 @@
 import { liveEvent } from './sync.js';
 import { esc, $, $$, toast, prettyCode, confirmDialog, copyText, keepAwake, qrSvg } from './ui.js';
 import { setHeader, mountEvent, errorText, announce, linksHtml, goLink } from './shell.js';
-import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml, onlineHtml } from './components.js';
+import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml, onlineHtml, liveGlanceHtml } from './components.js';
 import { fmtSpan, fmtClock, fmtDuration, minutesToSeconds, parseProgramLine, effective } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
@@ -176,7 +176,6 @@ export function adminView(root, code, initialTab) {
         ${ev.message ? `<p class="field-help">Showing now: “${esc(ev.message)}” <button type="button" class="btn btn-small btn-ghost" data-act="clearmsg">Clear</button></p>` : ''}
       </form>
       ${running ? '<button class="btn btn-ghost btn-small end-btn" data-act="end">End program now</button>' : ''}
-      <button class="btn btn-block" type="button" data-tab="notes">✉ Send a note to the stations or everyone</button>
       <p class="kbd-help muted">On a keyboard: → Next · ← Back · H Hold/Resume</p>`;
   }
 
@@ -188,6 +187,7 @@ export function adminView(root, code, initialTab) {
     lastPanelAt = Date.now();
     if (tab === 'run') {
       panel.innerHTML = `
+        ${liveGlanceHtml(view, now)}
         <h2 class="panel-title">Run of show</h2>
         <p class="muted panel-help">Go jumps straight to a segment.</p>
         ${programHtml(view, now, { admin: true })}
@@ -432,25 +432,13 @@ export function adminView(root, code, initialTab) {
   // -------------------------------------------------------- notes
 
   const QUICK_NOTES = ['Please wrap up your sessions', 'Please let all students exit'];
-  // One tap per part of a station session: sent at once to every station as a
-  // full-screen note, with its countdown already set.
-  const SESSION_PRESETS = [
-    { text: 'Students may now enter', minutes: 0 },
-    { text: 'Introduction of guest speaker', minutes: 0 },
-    { text: 'Guest speaker session starts now', minutes: 35 },
-    { text: 'Please wrap up your sessions', minutes: 5 },
-    { text: 'Please let all students exit & transfer to the next station', minutes: 10 },
-  ];
-
   function drawNotes(view) {
     // The form is drawn once and keeps what is being typed; only the list of
     // sent notes (with its confirmations) refreshes as they come in.
     if (!$('#noteForm')) {
       const stationsOn = view.event.stations_enabled && view.stations.length;
       $('#panel').innerHTML = `
-        ${stationsOn ? `<h2 class="panel-title">Station session: one tap to all stations</h2>
-        <div class="session-presets">${SESSION_PRESETS.map((p, i) => `<button type="button" class="btn preset-btn" data-preset="${i}">
-          <span class="preset-n">${i + 1}</span><span class="preset-text">${esc(p.text)}</span>${p.minutes ? `<span class="chip chip-warn">${p.minutes} min</span>` : ''}</button>`).join('')}</div>` : ''}
+        ${stationsOn ? '<p class="notice notice-gold">Station steps (students entering, guest speaker, session, exit) pop up on the stations by themselves when you press Next onto them in the program. Use notes only for anything extra.</p>' : ''}
         <h2 class="panel-title">Send a note</h2>
         <p class="muted panel-help">It covers the whole screen in big letters until each person taps “I’ve read it”. You see below who has.</p>
         <form id="noteForm" class="form note-form" autocomplete="off">
@@ -692,15 +680,6 @@ export function adminView(root, code, initialTab) {
     }
 
     // Notes
-    const preset = t.closest('[data-preset]');
-    if (preset) {
-      const p = SESSION_PRESETS[Number(preset.dataset.preset)];
-      if (await confirmDialog({ title: `Send to all stations: “${p.text}”?`, body: `It covers every station’s screen until they tap “I’ve read it”${p.minutes ? `, with a ${p.minutes}-minute countdown` : ''}.`, confirm: 'Send now' })) {
-        const res = await edit('notice', { text: p.text, audience: 'stations', minutes: p.minutes });
-        if (res) { toast('Sent to all stations.', 'ok'); $('#noteList').innerHTML = noteListHtml(live.view()); }
-      }
-      return;
-    }
     const quick = t.closest('[data-quick]');
     if (quick) {
       const box = $('#noteForm textarea[name=text]');

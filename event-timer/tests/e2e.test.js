@@ -627,3 +627,36 @@ test('overtime: every screen shows the updated time, and a flexible break wins i
   assert.deepEqual(v.page.errors, []);
   await v.ctx.close();
 });
+
+test('Next onto a station step pops it up on the stations by itself, and Master control sees every station live', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Auto steps', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('event', { stations_enabled: true });
+  await admin('stations', { stations: [{ name: 'Room A' }] });
+  await admin('program', { segments: [
+    { title: 'S1 · Students entering', duration_s: 480 },
+    { title: 'S1 · Introduction of guest speaker', duration_s: 300 },
+  ] });
+  const { codes } = await admin('codes');
+
+  const st = await phone();
+  await st.page.goto(url(`#/e/${made.code}/join/${codes[0].code}`));
+  await st.page.waitForSelector('.crowd-grid');
+  const m = await phone({ viewport: { width: 1280, height: 800 } });
+  await m.page.goto(url(`#/go/${made.key}`));
+  await m.page.waitForSelector('#controls');
+
+  await m.page.click('[data-act=next]');
+  await st.page.waitForSelector('.notice-overlay:has-text("Students entering")', { timeout: 5000 });
+  await st.page.click('#noticeOk');
+  await st.page.waitForSelector('.mine-phase:has-text("Students entering")');
+  await m.page.waitForSelector('.glance-table:has-text("Room A")');
+  await m.page.waitForSelector('.glance-table:has-text("Students entering")');
+
+  await m.page.click('[data-act=next]');
+  await st.page.waitForSelector('.notice-overlay:has-text("Introduction of guest speaker")', { timeout: 5000 });
+  await m.page.waitForSelector('.glance-table:has-text("Introduction of guest speaker")');
+  assert.deepEqual([...st.page.errors, ...m.page.errors], []);
+  await st.ctx.close();
+  await m.ctx.close();
+});
