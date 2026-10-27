@@ -433,3 +433,41 @@ test('the public key cannot read notes or confirmations directly', async () => {
     client.release();
   }
 });
+
+test('who is online: per station, Facilitator view, presenter, Master control; leaving and going quiet', async () => {
+  const ev = await newEvent();
+  const made = await ev.admin('stations', { stations: [{ name: 'Faith' }, { name: 'Service' }] });
+  const { codes } = await ev.admin('codes');
+  const here = (device, role, key = null, leave = false) =>
+    stack.rpc('et_here', { p_code: ev.code, p_device: device, p_role: role, p_key: key, p_leave: leave });
+
+  await here('st1-a', 'station', codes[0].code);
+  await here('st1-b', 'station', codes[0].code);
+  await here('viewer-1', 'viewer');
+  await here('fake-station', 'station', 'WRONG1');   // no valid code: counts as Facilitator view
+  await here('fake-admin', 'admin', 'NOTTHEKEY');     // no admin key: counts as Facilitator view
+  await here('admin', 'admin', ev.key);
+  const p = (await here('presenter', 'presenter')).presence;
+  assert.deepEqual([p.viewer, p.presenter, p.admin], [3, 1, 1]);
+  assert.equal(p.stations[made.stations[0].id], 2);
+  assert.equal(p.stations[made.stations[1].id], undefined, 'nobody at Service');
+
+  const left = (await here('st1-b', 'station', codes[0].code, true)).presence;
+  assert.equal(left.stations[made.stations[0].id], 1, 'one facilitator closed the app');
+
+  // A phone that went quiet (switched off, no signal) stops counting after 40 s.
+  await stack.pool.query("update et_presence set seen_at = now() - interval '1 minute' where device = 'viewer-1'");
+  assert.equal((await here('presenter', 'presenter')).presence.viewer, 2);
+});
+
+test('the public key cannot read who is online directly', async () => {
+  const client = await stack.pool.connect();
+  try {
+    await client.query('begin');
+    await client.query('set local role anon');
+    await assert.rejects(client.query('select * from et_presence'), /permission denied/);
+    await client.query('rollback');
+  } finally {
+    client.release();
+  }
+});

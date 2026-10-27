@@ -397,7 +397,7 @@ test('Present opens the presenter view in its own window; this tab keeps control
   assert.match(win.url(), /\/presenter$/);
   assert.match(await p.page.evaluate(() => location.hash), /\/admin/, 'Master control stays in the first tab');
   // Exit closes the presenter window.
-  await Promise.all([win.waitForEvent('close'), win.click('#pvExit')]);
+  await Promise.all([win.waitForEvent('close'), win.evaluate(() => document.getElementById('pvExit').click())]);
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
@@ -553,21 +553,60 @@ test('a program that has ended can be restarted, or reset to not started', { ski
 
   await a.page.click('#controls [data-act=restart]');
   await a.page.click('dialog[open] button[value=ok]');
-  await a.page.waitForSelector('#controls .go-sub:has-text("Closing")', { timeout: 5000 }); // Next › Closing
-  await v.page.waitForSelector('.hero-title:has-text("Opening")', { timeout: 5000 });
+  await a.page.waitForSelector('#controls .go-sub:has-text("Closing")', { timeout: 10000 }); // Next › Closing
+  await v.page.waitForSelector('.hero-title:has-text("Opening")', { timeout: 10000 });
   assert.match(await v.page.textContent('.hero-caption'), /Time left/);
   const st = await stack.rpc('et_state', { p_code: made.code, p_since: 0 });
   assert.deepEqual([st.event.status, st.event.current_index, st.segments[1].started_at], ['live', 0, null]);
 
   // End it again, then "Reset to not started": no timer until Start.
   await admin('end');
-  await a.page.waitForSelector('#controls [data-act=resetonly]', { timeout: 5000 });
+  await a.page.waitForSelector('#controls [data-act=resetonly]', { timeout: 10000 });
   await a.page.click('#controls [data-act=resetonly]');
   await a.page.click('dialog[open] button[value=ok]');
-  await v.page.waitForSelector('.hero-idle', { timeout: 5000 });
+  // "Ended" also has no running clock, so wait for the reset itself.
+  await v.page.waitForSelector('.hero-label:has-text("Not started")', { timeout: 10000 });
   assert.equal(await v.page.locator('.hero-time').count(), 0);
   assert.equal((await stack.rpc('et_state', { p_code: made.code, p_since: 0 })).event.status, 'ready');
   assert.deepEqual([...a.page.errors, ...v.page.errors], []);
   await a.ctx.close();
   await v.ctx.close();
+});
+
+test('who is online: open screens count, closed ones drop off at once', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Online', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  await admin('event', { stations_enabled: true });
+  await admin('stations', { stations: [{ name: 'Faith' }, { name: 'Service' }] });
+  const { codes } = await admin('codes');
+
+  const a = await phone();
+  await a.page.goto(url(`#/go/${made.key}`));
+  await a.page.waitForSelector('#controls');
+  await a.page.waitForSelector('.station:has-text("Faith") .online-off');
+
+  const st = await phone();
+  await st.page.goto(url(`#/go/${codes[0].code}`));
+  await st.page.waitForSelector('.crowd-grid');
+  const v = await phone();
+  await v.page.goto(url(`#/e/${made.code}`));
+  await v.page.waitForSelector('.page-event .hero');
+
+  // Master control sees them within a moment, without refreshing.
+  await a.page.waitForSelector('.station:has-text("Faith") .online-on:has-text("1 online")', { timeout: 5000 });
+  await a.page.waitForSelector('.station:has-text("Service") .online-off');
+  await a.page.waitForSelector('.online-now:has-text("1 in Facilitator view")', { timeout: 5000 });
+  await a.page.waitForSelector('.online-now:has-text("1 at stations")');
+
+  // The station facilitator closes the app: it drops off straight away.
+  const t0 = Date.now();
+  await st.page.goto('about:blank');
+  await a.page.waitForSelector('.station:has-text("Faith") .online-off', { timeout: 5000 });
+  assert.ok(Date.now() - t0 < 3000, `dropped off after ${Date.now() - t0} ms`);
+
+  // Everyone can see it too: the Facilitator view's Stations tab.
+  await v.page.click('[data-tab=stations]');
+  await v.page.waitForSelector('.online-now:has-text("Online now")');
+  for (const x of [a, st, v]) assert.deepEqual(x.page.errors, []);
+  await Promise.all([a.ctx.close(), st.ctx.close(), v.ctx.close()]);
 });

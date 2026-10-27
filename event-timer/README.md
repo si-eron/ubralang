@@ -144,6 +144,19 @@ letters, and stays until each person taps **I've read it**:
   and counts the other phones that confirmed (with names, if they gave one).
   **Clear** takes a note off every screen.
 
+## Who is online
+
+Every station card shows how many facilitators have that station's controls
+open right now (**2 online**, or **No one online**), and an **Online now** line
+counts the Facilitator view, the stations, the presenter view and Master
+control. Everyone sees it: the Stations tab, the station screens, and Master
+control's Run tab.
+
+Only screens that are actually open count. Each one says "I'm here" every 15
+seconds while it is on screen, and "I've left" the moment the app is closed or
+put in the background; a phone that goes quiet (switched off, no signal) drops
+off after 40 seconds. The big screen is not counted.
+
 ## Putting it on a phone
 
 Open the site, then:

@@ -151,6 +151,10 @@ async function attachRealtime(server, pool, offline = { value: false }) {
     const topic = `realtime:et:${note.code}`;
     const subs = topics.get(topic);
     if (!subs || !subs.size) return;
+    if (note.presence) {
+      for (const ws of subs) send(ws, { topic, event: 'broadcast', payload: { type: 'broadcast', event: 'state', payload: { presence: note.presence } }, ref: null });
+      return;
+    }
     if (note.deleted) {
       for (const ws of subs) send(ws, { topic, event: 'broadcast', payload: { type: 'broadcast', event: 'state', payload: { deleted: true } }, ref: null });
       return;

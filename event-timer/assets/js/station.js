@@ -140,6 +140,7 @@ export function stationView(root, code) {
 
   const cleanup = mountEvent(code, {
     notices: { role: 'station', stationId: access.id },
+    presence: { role: 'station', key: access.key },
     onNotFound() {
       toast('This event no longer exists.', 'bad');
       location.hash = '#/';
