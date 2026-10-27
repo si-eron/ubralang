@@ -84,7 +84,7 @@ export function syncPill(live) {
   } else if (live.health === 'ok') {
     detail = 'In sync with every screen';
   }
-  return `<span class="pill pill-${tone}" title="${esc(detail)}" role="status">
+  return `<span class="pill pill-${tone}" title="${esc(detail ? `${detail} · tap to refresh` : "Tap to refresh")}" role="status">
     <span class="dot" aria-hidden="true"></span>${esc(label)}${detail && live.health !== 'ok' ? `<span class="pill-detail"> · ${esc(detail)}</span>` : ''}
   </span>`;
 }

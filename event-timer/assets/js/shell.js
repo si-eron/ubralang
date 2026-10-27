@@ -160,3 +160,9 @@ export function linksHtml(code, key, stations) {
   </ul>`;
 }
 
+
+// Tap the Live / Offline label to refresh this screen now.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#pill .pill')) return;
+  window.dispatchEvent(new Event('et-sync-now'));
+});

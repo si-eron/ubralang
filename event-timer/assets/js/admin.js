@@ -35,6 +35,7 @@ export function adminView(root, code, initialTab) {
   let busy = false;
   let alive = true; // false once the person has left this screen
   let lastPanelAt = 0;
+  let lastStationSig = '';
 
   setHeader({ title: 'Master control', subtitle: prettyCode(code), back: `#/e/${code}` });
   document.body.classList.add('is-admin');
@@ -185,6 +186,7 @@ export function adminView(root, code, initialTab) {
         // A head start: three stations to rename, ready to save.
         stationsDraft = [1, 2, 3].map(newStation);
         stationsDirty = true;
+        setTimeout(() => markStationsDirty(true), 0);
       }
       drawStationsEditor(view);
     } else if (tab === 'share') {
@@ -294,11 +296,7 @@ export function adminView(root, code, initialTab) {
           </li>`).join('')}
         </ol>
         <button class="btn btn-block" id="addStation">+ Add station</button>
-        <div class="savebar" id="stationsSave" ${stationsDirty ? '' : 'hidden'}>
-          <span>Unsaved changes</span>
-          <button class="btn btn-ghost" id="stationsDiscard">Discard</button>
-          <button class="btn btn-primary" id="stationsSaveBtn">Save stations</button>
-        </div>
+        <p class="autosave" id="stationsStatus" role="status" data-tone="${stationsDirty ? '' : 'ok'}">${stationsDirty ? 'Saving…' : 'Changes save by themselves · every device sees them'}</p>
         <h2 class="panel-title">Station codes</h2>
         <p class="muted panel-help">Give each station’s facilitators their code, or send them the link: it signs them straight in. A code opens only its own station.</p>
         <div id="codes">${codesHtml(view)}</div>
@@ -328,30 +326,53 @@ export function adminView(root, code, initialTab) {
     }
   }
 
-  function markStationsDirty() {
+  // Station edits save themselves: a moment after typing stops, and at once
+  // when a station is added, removed or moved. Nothing waits on a Save button,
+  // so every other device has the change within a second or two.
+  let stationsTimer = null;
+  let stationsSaving = false;
+  let stationsSeq = 0;
+
+  function stationsStatus(text, tone = '') {
+    const el = $('#stationsStatus');
+    if (el) { el.textContent = text; el.dataset.tone = tone; }
+  }
+
+  function markStationsDirty(now = false) {
     stationsDirty = true;
-    const bar = $('#stationsSave');
-    if (bar) bar.hidden = false;
+    stationsSeq += 1;
+    stationsStatus('Saving…');
+    clearTimeout(stationsTimer);
+    stationsTimer = setTimeout(saveStations, now ? 0 : 700);
   }
 
   async function saveStations() {
+    if (stationsSaving) { stationsTimer = setTimeout(saveStations, 300); return; }
+    stationsSaving = true;
+    const seq = stationsSeq;
     const stations = stationsDraft.map((s) => ({
       ...(s.id ? { id: s.id } : {}),
       name: s.name,
       location: s.location || '',
       phases: DEFAULT_STEPS,
     }));
-    const btn = $('#stationsSaveBtn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     const res = await edit('stations', { stations });
-    if (res) {
-      stationsDirty = false;
-      codes = null;
-      toast('Stations saved.', 'ok');
-      drawPanel(live.view());
-    } else if (btn) {
-      btn.disabled = false; btn.textContent = 'Save stations';
+    stationsSaving = false;
+    if (!alive) return;
+    if (!res) {
+      stationsStatus('Not saved: no connection. It will try again.', 'bad');
+      stationsTimer = setTimeout(saveStations, 3000);
+      return;
     }
+    // New stations now have ids: keep them, so the next save updates them.
+    res.stations.forEach((st, i) => { if (stationsDraft[i] && !stationsDraft[i].id) stationsDraft[i].id = st.id; });
+    codes = null;
+    if (seq !== stationsSeq) return; // typed more while saving: that save is already queued
+    stationsDirty = false;
+    stationsStatus('All changes saved · every device has them', 'ok');
+    // Redraw (for the new codes) unless someone is typing in the list.
+    if (tab === 'stations' && !$('#stationList')?.contains(document.activeElement)) drawPanel(live.view());
+    else loadCodes();
   }
 
   // -------------------------------------------------------- share & settings
@@ -504,17 +525,17 @@ export function adminView(root, code, initialTab) {
         const d = Number(t.closest('[data-move]').dataset.move);
         const [s] = stationsDraft.splice(i, 1);
         stationsDraft.splice(i + d, 0, s);
-        markStationsDirty();
+        markStationsDirty(true);
         drawStationsEditor(live.view());
       } else if (t.closest('[data-remove]') && row) {
         const s = stationsDraft[i];
-        if (s.id && !(await confirmDialog({ title: `Delete ${s.name || 'this station'}?`, body: 'Its code stops working once you save.', confirm: 'Delete', danger: true }))) return;
+        if (s.id && !(await confirmDialog({ title: `Delete ${s.name || 'this station'}?`, body: 'Its code stops working straight away.', confirm: 'Delete', danger: true }))) return;
         stationsDraft.splice(i, 1);
-        markStationsDirty();
         drawStationsEditor(live.view());
+        markStationsDirty(true);
       } else if (t.id === 'addStation') {
         stationsDraft.push(newStation(stationsDraft.length + 1));
-        markStationsDirty();
+        markStationsDirty(true);
         drawStationsEditor(live.view());
         $(`#stationList .edit-row[data-i="${stationsDraft.length - 1}"] input`)?.select();
       } else if (t.id === 'stationsSaveBtn') {
@@ -645,7 +666,12 @@ export function adminView(root, code, initialTab) {
         || (tab === 'settings' && $('#settingsForm')?.contains(document.activeElement))
         || (tab === 'program' && $('#editList')?.contains(document.activeElement))
         || (tab === 'stations' && $('#stationList')?.contains(document.activeElement));
-      if (!editing) drawPanel(view);
+      // Codes & links and Settings hold nothing live: redraw them only when the
+      // stations change, so a tap never lands on a button being replaced.
+      const stationSig = view.stations.map((st) => `${st.id}:${st.name}`).join('|') + view.event.stations_enabled;
+      const quietTab = (tab === 'share' || tab === 'settings') && stationSig === lastStationSig;
+      lastStationSig = stationSig;
+      if (!editing && !quietTab) drawPanel(view);
     },
     tick(view) {
       $('#hero').innerHTML = heroHtml(view, live.now());
