@@ -15,7 +15,7 @@ export function stationView(root, code) {
   const live = liveEvent(code);
   let lastOthersAt = 0;
   let noteFocused = false;
-  setHeader({ title: 'My station', subtitle: prettyCode(code), back: `#/e/${code}` });
+  setHeader({ title: 'Station control', subtitle: prettyCode(code), back: `#/e/${code}` });
   document.body.classList.add('is-station');
   keepAwake(true);
 
@@ -67,14 +67,14 @@ export function stationView(root, code) {
       $('#mine').innerHTML = '<p class="empty">This station was removed by the admin.</p>';
       return;
     }
-    setHeader({ title: s.name, subtitle: `${view.event.name} · ${prettyCode(code)}`, back: `#/e/${code}` });
+    setHeader({ title: s.name, subtitle: `Station control · ${view.event.name}`, back: `#/e/${code}` });
     const now = live.now();
     const since = s.phase_index >= 0 ? stationSince(s, now) : null;
     const nextPhase = s.phases[s.phase_index + 1];
     $('#mine').innerHTML = `
       <header class="mine-head">
         <div>
-          <p class="eyebrow">Facilitator · your station</p>
+          <p class="eyebrow">Station control</p>
           <h1 class="card-title">${esc(s.name)}</h1>
           ${s.location ? `<p class="muted">${esc(s.location)}</p>` : ''}
         </div>

@@ -1,7 +1,7 @@
 // Master control: the one person who moves the program along.
 import { liveEvent } from './sync.js';
 import { esc, $, $$, toast, prettyCode, confirmDialog, copyText, keepAwake, qrSvg } from './ui.js';
-import { setHeader, mountEvent, errorText, shareUrl, announce } from './shell.js';
+import { setHeader, mountEvent, errorText, announce, linksHtml, goLink } from './shell.js';
 import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from './components.js';
 import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
@@ -15,7 +15,7 @@ const TABS = [
   ['run', 'Run'],
   ['program', 'Program'],
   ['stations', 'Stations'],
-  ['share', 'Share'],
+  ['share', 'Codes & links'],
   ['settings', 'Settings'],
 ];
 
@@ -172,6 +172,9 @@ export function adminView(root, code, initialTab) {
         <p class="muted panel-help">Go jumps straight to a segment.</p>
         ${programHtml(view, now, { admin: true })}
         ${view.event.stations_enabled && view.stations.length ? `<h2 class="panel-title">Stations</h2>${stationsBoardHtml(view, now)}` : ''}
+        ${view.event.stations_enabled ? '' : `<div class="notice notice-gold station-offer">
+          <p><strong>Need stations?</strong> Turn on Station Mode any time, even with the program already running.</p>
+          <button class="btn btn-small btn-primary" id="stationsOnRun" type="button">Turn on Station Mode</button></div>`}
         <h2 class="panel-title">Updates</h2>${logHtml(view)}`;
     } else if (tab === 'program') {
       if (!programDirty) programDraft = view.segments.map(toDraft);
@@ -185,7 +188,7 @@ export function adminView(root, code, initialTab) {
       }
       drawStationsEditor(view);
     } else if (tab === 'share') {
-      drawShare();
+      drawShare(view);
     } else if (tab === 'settings') {
       drawSettings(view);
     }
@@ -296,7 +299,7 @@ export function adminView(root, code, initialTab) {
           <button class="btn btn-ghost" id="stationsDiscard">Discard</button>
           <button class="btn btn-primary" id="stationsSaveBtn">Save stations</button>
         </div>
-        <h2 class="panel-title">Facilitator codes</h2>
+        <h2 class="panel-title">Station codes</h2>
         <p class="muted panel-help">Give each station’s facilitators their code, or send them the link: it signs them straight in. A code opens only its own station.</p>
         <div id="codes">${codesHtml(view)}</div>
       </div>`;
@@ -353,27 +356,31 @@ export function adminView(root, code, initialTab) {
 
   // -------------------------------------------------------- share & settings
 
-  function drawShare() {
-    const url = shareUrl(code);
+  function drawShare(view) {
+    const go = goLink(code);
+    const stations = view.event.stations_enabled ? (codes || []) : [];
     $('#panel').innerHTML = `
-      <h2 class="panel-title">Everyone</h2>
-      <p class="muted panel-help">Anyone with the code or link can follow along. Watching needs no sign-in.</p>
+      <h2 class="panel-title">Codes &amp; links</h2>
+      <p class="muted panel-help">People type a code in the box on the home page, or open its link, which signs them straight in. Each code opens one thing.</p>
+      ${linksHtml(code, key, stations)}
+      ${view.event.stations_enabled && !codes ? '<p class="muted">Loading station codes…</p>' : ''}
       <div class="share-block">
-        ${qrSvg(url)}
+        ${qrSvg(go)}
         <div>
-          <p class="eyebrow">Event code</p>
-          <p class="bigcode">${esc(prettyCode(code))}</p>
-          <p class="share-url">${esc(url)}</p>
-          <div class="row"><button class="btn" data-copy="${esc(url)}">Copy link</button>
-          <a class="btn" href="#/e/${esc(code)}/stage">Open big screen</a>
-          <a class="btn" href="#/e/${esc(code)}/presenter">Presenter view</a></div>
+          <p class="eyebrow">QR for the Facilitator view</p>
+          <p class="field-help">Put it on a slide or a printout. Scanning it opens the live program.</p>
+          <div class="row">
+            <button class="btn" data-present="presenter">▶ Present</button>
+            <button class="btn" data-present="stage">Big screen</button>
+          </div>
         </div>
       </div>
-      <h2 class="panel-title">Your admin key</h2>
-      <p class="muted panel-help">Saved on this phone. To run the event from another device, sign in there with this key.</p>
-      <p><button class="btn" id="revealKey">Show admin key</button> <span class="bigcode bigcode-small" id="keyOut" hidden>${esc(prettyCode(key))}</span></p>
+      <h2 class="panel-title">Change the admin key</h2>
       <p><button class="btn btn-ghost" id="newKey">Make a new admin key</button></p>
-      <p class="field-help">A new key signs every other device out of master control.</p>`;
+      <p class="field-help">The old key stops working, and every other device is signed out of Master control.</p>`;
+    if (view.event.stations_enabled && !codes && view.stations.length) {
+      loadCodes().then(() => { if (alive && tab === 'share') drawShare(live.view()); });
+    }
   }
 
   function toLocalInput(ms) {
@@ -516,7 +523,7 @@ export function adminView(root, code, initialTab) {
         stationsDirty = false;
         drawPanel(live.view());
       } else if (t.closest('[data-copylink]')) {
-        copyText(shareUrl(code, `/join/${t.closest('[data-copylink]').dataset.copylink}`), 'Station link copied');
+        // copied by the shared handler in shell.js
       } else if (t.closest('[data-newcode]')) {
         if (await confirmDialog({ title: 'Make a new code for this station?', body: 'The old code stops working. Phones already signed in with it are signed out.', confirm: 'New code' })) {
           await edit('station_code', { id: t.closest('[data-newcode]').dataset.newcode });
@@ -526,9 +533,21 @@ export function adminView(root, code, initialTab) {
       }
     }
 
+    if (t.id === 'stationsOnRun') {
+      t.disabled = true;
+      if (await edit('event', { stations_enabled: true })) {
+        tab = 'stations';
+        history.replaceState(null, '', `#/e/${code}/admin/stations`);
+        drawPanel(live.view());
+        toast('Station Mode is on. Name your stations, then Save.', 'ok', 4000);
+      } else {
+        t.disabled = false;
+      }
+      return;
+    }
+
     // Share & settings
     if (t.closest('[data-copy]')) copyText(t.closest('[data-copy]').dataset.copy, 'Link copied');
-    if (t.id === 'revealKey') { $('#keyOut').hidden = false; t.hidden = true; }
     if (t.id === 'newKey' && await confirmDialog({ title: 'Make a new admin key?', body: 'Every other device is signed out of master control. Write the new key down.', confirm: 'Make new key' })) {
       const res = await edit('new_key');
       if (res && res.key) {

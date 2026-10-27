@@ -8,7 +8,7 @@
 -- How it is protected. The web page ships with Supabase's publishable key,
 -- which anyone can read. So the tables themselves are closed: row-level
 -- security is on and there are no policies, which means the publishable key
--- cannot read or write a single row directly. Everything goes through the five
+-- cannot read or write a single row directly. Everything goes through the six
 -- functions at the bottom of this file, and each one checks the code it is
 -- given:
 --
@@ -17,6 +17,7 @@
 --   et_admin    the master admin key            run the program, edit it
 --   et_station  that station's code (or admin)  update one station
 --   et_role     either                          "which one is this code?"
+--   et_enter    any code on its own             "where does this code lead?"
 --
 -- Codes are drawn from 31 characters that cannot be confused when read aloud
 -- or off a screen (no 0/O, 1/I/L). An admin key is 8 of them, about 850
@@ -98,6 +99,14 @@ create table if not exists et_log (
   text      text not null
 );
 
+-- So an admin key works on its own, without the event code: an unsalted
+-- fingerprint of the key, used only to find the event. (The salted hash above
+-- is still what proves the key.) Events made before this was added get theirs
+-- the next time their admin key is used.
+alter table et_events add column if not exists admin_lookup text;
+create unique index if not exists et_events_admin_lookup on et_events (admin_lookup);
+create index if not exists et_stations_code on et_stations (code);
+
 create index if not exists et_segments_event on et_segments (event_id, position);
 create index if not exists et_stations_event on et_stations (event_id, position);
 create index if not exists et_log_event on et_log (event_id, at desc);
@@ -146,6 +155,26 @@ begin
   end loop;
   return result;
 end $$;
+
+-- A 6-character code no event and no station already uses, so that any code
+-- typed on its own leads to exactly one place.
+create or replace function et_new_code() returns text
+language plpgsql volatile as $$
+declare
+  v text;
+begin
+  loop
+    v := et_random_code(6);
+    exit when not exists (select 1 from et_events where code = v)
+          and not exists (select 1 from et_stations where code = v);
+  end loop;
+  return v;
+end $$;
+
+create or replace function et_lookup(p_key text) returns text
+language sql immutable as $$
+  select encode(sha256(convert_to('et-admin:' || p_key, 'UTF8')), 'hex')
+$$;
 
 create or replace function et_hash(p_salt text, p_key text) returns text
 language sql immutable as $$
@@ -323,12 +352,9 @@ begin
   if (select count(*) from et_events where created_at > now() - interval '1 hour') >= 60 then
     return et_fail('busy');
   end if;
-  loop
-    v_code := et_random_code(6);
-    exit when not exists (select 1 from et_events where code = v_code);
-  end loop;
-  insert into et_events (code, name, venue, admin_salt, admin_hash)
-  values (v_code, v_name, left(btrim(coalesce(p_venue, '')), 120), v_salt, et_hash(v_salt, v_key))
+  v_code := et_new_code();
+  insert into et_events (code, name, venue, admin_salt, admin_hash, admin_lookup)
+  values (v_code, v_name, left(btrim(coalesce(p_venue, '')), 120), v_salt, et_hash(v_salt, v_key), et_lookup(v_key))
   returning id into v_id;
   return et_snapshot(v_id) || jsonb_build_object('code', v_code, 'key', v_key);
 end $$;
@@ -365,6 +391,9 @@ begin
   end if;
   if et_hash(e.admin_salt, et_norm(p_key)) <> e.admin_hash then
     return et_fail('wrong_key');
+  end if;
+  if e.admin_lookup is null then
+    update et_events set admin_lookup = et_lookup(et_norm(p_key)) where id = e.id;
   end if;
 
   select count(*) into v_count from et_segments where event_id = e.id;
@@ -574,7 +603,7 @@ begin
          where id = v_id;
       else
         insert into et_stations (event_id, position, name, location, phases, code)
-        values (e.id, i, v_title, left(btrim(coalesce(item->>'location', '')), 80), v_phases, et_random_code(6))
+        values (e.id, i, v_title, left(btrim(coalesce(item->>'location', '')), 80), v_phases, et_new_code())
         returning id into v_id;
       end if;
       v_ids := v_ids || v_id;
@@ -583,7 +612,7 @@ begin
     delete from et_stations where event_id = e.id and not (id = any (v_ids));
 
   when 'station_code' then
-    update et_stations set code = et_random_code(6)
+    update et_stations set code = et_new_code()
      where id = et_uuid(a->>'id') and event_id = e.id;
 
   when 'codes' then
@@ -594,7 +623,7 @@ begin
 
   when 'new_key' then
     v_text := et_random_code(8);
-    update et_events set admin_hash = et_hash(admin_salt, v_text) where id = e.id;
+    update et_events set admin_hash = et_hash(admin_salt, v_text), admin_lookup = et_lookup(v_text) where id = e.id;
     v_extra := jsonb_build_object('key', v_text);
 
   when 'delete' then
@@ -702,10 +731,49 @@ begin
   return et_fail('wrong_key');
 end $$;
 
+-- ---------------------------------------------------------------- et_enter
+
+-- One box for every code. It says where the code leads:
+--   the event code  -> 'viewer'  (follow the program)
+--   a station code  -> 'station' (that station's controls)
+--   the admin key   -> 'admin'   (master control)
+create or replace function et_enter(p_key text)
+returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+declare
+  k text := et_norm(p_key);
+  v_code text;
+  v_station uuid;
+  v_count int;
+begin
+  if k = '' then
+    return et_fail('not_found');
+  end if;
+  select code into v_code from et_events where admin_lookup = et_lookup(k);
+  if found then
+    return jsonb_build_object('ok', true, 'role', 'admin', 'code', v_code, 'now', et_ms(clock_timestamp()));
+  end if;
+  select code into v_code from et_events where code = k;
+  if found then
+    return jsonb_build_object('ok', true, 'role', 'viewer', 'code', v_code, 'now', et_ms(clock_timestamp()));
+  end if;
+  select count(*) into v_count from et_stations where code = k;
+  if v_count = 1 then
+    select s.id, e.code into v_station, v_code
+      from et_stations s join et_events e on e.id = s.event_id where s.code = k;
+    return jsonb_build_object('ok', true, 'role', 'station', 'code', v_code, 'station', v_station, 'now', et_ms(clock_timestamp()));
+  elsif v_count > 1 then
+    return et_fail('ambiguous');
+  end if;
+  return et_fail('not_found');
+end $$;
+
 -- ------------------------------------------------------------------ grants
 
 -- Supabase lets the publishable key run every new function by default. Take
--- that away from the helpers, then give back only the five front doors.
+-- that away from the helpers, then give back only the six front doors.
 do $$
 declare
   f text;
@@ -717,7 +785,8 @@ begin
     'et_touch(uuid)', 'et_note(uuid,timestamptz,text,text)', 'et_snapshot(uuid)',
     'et_go(uuid,int,timestamptz)',
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
-    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)'
+    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)',
+    'et_new_code()', 'et_lookup(text)', 'et_enter(text)'
   ] loop
     execute format('revoke all on function %s from public', f);
     foreach r in array array['anon', 'authenticated'] loop
@@ -728,7 +797,7 @@ begin
   end loop;
   foreach f in array array[
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
-    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)'
+    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)', 'et_enter(text)'
   ] loop
     foreach r in array array['anon', 'authenticated'] loop
       if exists (select 1 from pg_roles where rolname = r) then

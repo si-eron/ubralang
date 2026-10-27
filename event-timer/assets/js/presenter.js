@@ -25,6 +25,7 @@ export function presenterView(root, code) {
         <a class="pv-exit" href="#/e/${esc(code)}" aria-label="Leave presenter view">‹ Exit</a>
         <p class="pv-event" id="pvEvent"></p>
         <p class="pv-clock" id="pvClock"></p>
+        <button class="pv-exit" id="pvFull" type="button">Full screen</button>
       </header>
       <main class="pv-main">
         <section class="pv-now" aria-live="polite">
@@ -47,6 +48,11 @@ export function presenterView(root, code) {
     </div>`;
 
   const pv = $('#presenter');
+  const fullBtn = $('#pvFull');
+  const syncFull = () => { fullBtn.hidden = Boolean(document.fullscreenElement) || !document.documentElement.requestFullscreen; };
+  fullBtn.addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+  document.addEventListener('fullscreenchange', syncFull);
+  syncFull();
   let lastSide = '';
 
   const draw = (view, live) => {
@@ -125,5 +131,7 @@ export function presenterView(root, code) {
     cleanup();
     keepAwake(false);
     setPill('');
+    document.removeEventListener('fullscreenchange', syncFull);
+    if (document.fullscreenElement) document.exitFullscreen?.().catch?.(() => {});
   };
 }

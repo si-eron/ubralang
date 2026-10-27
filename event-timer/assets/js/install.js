@@ -121,7 +121,7 @@ function stepsHtml() {
 }
 
 export function installView(root, hash) {
-  const code = (hash.match(/^#\/e\/([A-Za-z0-9]+)/) || [])[1];
+  const code = (hash.match(/^#\/(?:e|go)\/([A-Za-z0-9-]+)/) || [])[1];
   const phone = platform() === 'ios' ? 'iPhone' : 'Android phone';
   const draw = () => {
     const installed = (() => { try { return localStorage.getItem('et.installed') === '1'; } catch { return false; } })();
@@ -137,9 +137,9 @@ export function installView(root, hash) {
             ? '<button class="btn btn-go" id="installNow"><span class="go-label">Install the app</span><span class="go-sub">Free · no app store needed</span></button>'
             : stepsHtml()}
           ${code ? `<div class="gate-code">
-            <p class="eyebrow">Your event code</p>
+            <p class="eyebrow">Your code</p>
             <p class="bigcode">${esc(prettyCode(code))}</p>
-            <p class="field-help">Once the app is open, tap <strong>Join</strong> and type this code. (The app on your home screen doesn’t see what this browser had open.)</p>
+            <p class="field-help">Once the app is open, type this code in the <strong>Enter your code</strong> box. (The app on your home screen doesn’t see what this browser had open.)</p>
           </div>` : ''}
         </section>
       </div>`;

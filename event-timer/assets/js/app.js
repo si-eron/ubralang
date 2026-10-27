@@ -1,7 +1,7 @@
 // The page: which screen to show, and the screens anyone can open.
 import { liveEvent, rpc, isConfigured } from './sync.js';
-import { esc, $, $$, toast, prettyCode, normCode, copyText, vibrate } from './ui.js';
-import { setHeader, setPill, announce, errorText, mountEvent, shareDialog } from './shell.js';
+import { esc, $, $$, toast, prettyCode, normCode, vibrate } from './ui.js';
+import { setHeader, setPill, announce, errorText, mountEvent, shareDialog, linksHtml } from './shell.js';
 import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from './components.js';
 import { recentEvents, rememberEvent, forgetEvent, adminKey, setAdminKey, stationAccess, setStationAccess } from './store.js';
 import { adminView } from './admin.js';
@@ -11,7 +11,77 @@ import { presenterView } from './presenter.js';
 import { needsInstall, installView, isStandalone, platform, canPromptInstall, promptInstall, onInstallChange } from './install.js';
 
 const app = document.getElementById('app');
+// ------------------------------------------------------------- one code, three doors
+//
+// Every code is typed in the same box, and the app works out where it leads:
+//   the event code  -> Facilitator view (follow the program; changes nothing)
+//   a station code  -> Station control  (that station's buttons)
+//   the admin key   -> Master control   (runs the program)
+// The same three come as links, #/go/<code>, which sign people straight in.
+
+export async function enterCode(raw) {
+  const k = normCode(raw);
+  if (k.length < 6) return { ok: false, error: 'too_short' };
+  let res;
+  try {
+    res = await rpc('et_enter', { p_key: k });
+  } catch (err) {
+    // A database not yet updated for one-box sign-in: treat it as an event code.
+    if (err.code === 'server' && /et_enter/.test(err.message)) {
+      const st = await rpc('et_state', { p_code: k, p_since: 0 });
+      res = st.ok ? { ok: true, role: 'viewer', code: k } : st;
+    } else {
+      throw err;
+    }
+  }
+  if (!res.ok) return res;
+  const state = await rpc('et_state', { p_code: res.code, p_since: 0 }).catch(() => null);
+  rememberEvent(res.code, state && state.event ? state.event.name : res.code);
+  if (res.role === 'admin') {
+    setAdminKey(res.code, k);
+    return { ...res, hash: `#/e/${res.code}/admin` };
+  }
+  if (res.role === 'station') {
+    setStationAccess(res.code, { id: res.station, key: k });
+    return { ...res, hash: `#/e/${res.code}/station` };
+  }
+  return { ...res, hash: `#/e/${res.code}` };
+}
+
+const ENTER_ERRORS = {
+  too_short: 'Type the whole code: 6 or 8 letters and numbers.',
+  not_found: 'That code doesn’t match any event, station or admin key. Check it and try again.',
+  ambiguous: 'That station code is used twice. Ask the admin for a new one.',
+};
+
+async function submitCode(input, btn) {
+  btn.disabled = true;
+  try {
+    const res = await enterCode(input.value);
+    if (!res.ok) { toast(ENTER_ERRORS[res.error] || errorText(res.error), 'bad', 5000); return; }
+    location.hash = res.hash;
+  } catch (err) {
+    toast(errorText(err.code, err.message), 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function goView(root, code) {
+  setHeader({ title: 'Signing in…' });
+  setPill('');
+  root.innerHTML = '<div class="page"><p class="empty">Opening…</p></div>';
+  enterCode(code)
+    .then((res) => {
+      if (res.ok) location.replace(res.hash);
+      else { toast(ENTER_ERRORS[res.error] || errorText(res.error), 'bad', 6000); location.replace('#/'); }
+    })
+    .catch((err) => { toast(errorText(err.code, err.message), 'bad', 6000); location.replace('#/'); });
+}
+
 // ------------------------------------------------------------- home
+
+const ROLE_LABEL = { viewer: 'Facilitator view', station: 'Station control', admin: 'Master control' };
 
 function homeView(root) {
   setHeader();
@@ -20,107 +90,63 @@ function homeView(root) {
   root.innerHTML = `
     <div class="page page-home">
       <section class="intro">
-        <h1>Run the program. Everyone sees it.</h1>
-        <p class="lede">One person moves the program along; every phone and screen shows what is on now, how long is left, and what is next. Stations post where they are and whether they are full.</p>
+        <h1>Event Timer</h1>
+        <p class="lede">Follow the program live, run your station, or run the whole event, all with one code.</p>
       </section>
 
-      ${isConfigured() ? '' : `<div class="notice notice-warn"><strong>Not connected yet.</strong> This copy of the site has no database. Follow SETUP.md (free, about ten minutes) and fill in assets/js/config.js.</div>`}
+      ${isConfigured() ? '' : '<div class="notice notice-warn"><strong>Not connected yet.</strong> This copy of the site has no database. See SETUP.md.</div>'}
 
-      <form class="card join" id="joinForm" autocomplete="off">
-        <label for="joinCode" class="card-title">Join an event</label>
-        <p class="muted">Type the event code you were given.</p>
+      <form class="card enter" id="enterForm" autocomplete="off">
+        <label for="codeBox" class="card-title">Enter your code</label>
         <div class="join-row">
-          <input id="joinCode" name="code" inputmode="text" autocapitalize="characters" spellcheck="false"
-                 placeholder="ABC-123" maxlength="9" required aria-describedby="joinHelp">
-          <button class="btn btn-primary" type="submit">Join</button>
+          <input id="codeBox" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="ABC-123" maxlength="10" required>
+          <button class="btn btn-primary" type="submit">Go</button>
         </div>
-        <p class="field-help" id="joinHelp">Six letters and numbers. Dashes and spaces don’t matter.</p>
-      </form>
-
-      ${recent.length ? `<section class="card">
-        <h2 class="card-title">Your events</h2>
-        <ul class="recent">${recent.map((e) => `
-          <li>
-            <a href="#/e/${esc(e.code)}" class="recent-link">
-              <span class="recent-name">${esc(e.name)}</span>
-              <span class="muted">${esc(prettyCode(e.code))}${adminKey(e.code) ? ' · <span class="chip chip-live">Admin</span>' : ''}${stationAccess(e.code) ? ' · <span class="chip chip-muted">Station</span>' : ''}</span>
-            </a>
-            <button class="btn btn-ghost btn-small" data-forget="${esc(e.code)}" aria-label="Remove ${esc(e.name)} from this list">Remove</button>
-          </li>`).join('')}
+        <ul class="doors">
+          <li><span class="door door-view">Event code</span> opens the <strong>Facilitator view</strong>: the live program.</li>
+          <li><span class="door door-station">Station code</span> opens <strong>Station control</strong>: your station’s buttons.</li>
+          <li><span class="door door-admin">Admin key</span> opens <strong>Master control</strong>: runs the whole program.</li>
         </ul>
-      </section>` : ''}
-
-      <form class="card form" id="staffForm" autocomplete="off">
-        <h2 class="card-title">Admin or facilitator? Sign in</h2>
-        <p class="muted">Type the event code, then your <strong>admin key</strong> (8 characters) to run the program, or your <strong>facilitator code</strong> (6 characters) to update your station.</p>
-        <label class="field"><span>Event code</span>
-          <input name="code" required autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="ABC-123"></label>
-        <label class="field"><span>Admin key or facilitator code</span>
-          <input name="key" required autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="ABCD-EFGH"></label>
-        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
       </form>
 
       <section class="card">
         <h2 class="card-title">Running a new event?</h2>
-        <p class="muted">Make the event, add the program, and share the code. You become its master admin and get your admin key.</p>
+        <p class="muted">Make the event and add the program. You get the codes and links for everyone else.</p>
         <a class="btn btn-primary btn-block" href="#/new">Create an event</a>
       </section>
 
+      ${recent.length ? `<section class="card">
+        <h2 class="card-title">Opened on this phone</h2>
+        <ul class="recent">${recent.map((e) => `
+          <li>
+            <div class="recent-main">
+              <span class="recent-name">${esc(e.name)}</span>
+              <span class="recent-links">
+                ${adminKey(e.code) ? `<a class="chip chip-live" href="#/e/${esc(e.code)}/admin">${ROLE_LABEL.admin}</a>` : ''}
+                ${stationAccess(e.code) ? `<a class="chip chip-live" href="#/e/${esc(e.code)}/station">${ROLE_LABEL.station}</a>` : ''}
+                <a class="chip" href="#/e/${esc(e.code)}">${ROLE_LABEL.viewer}</a>
+              </span>
+            </div>
+            <button class="btn btn-ghost btn-small" data-forget="${esc(e.code)}" aria-label="Remove ${esc(e.name)} from this phone">Remove</button>
+          </li>`).join('')}
+        </ul>
+      </section>` : ''}
+
       <section class="card install" id="installCard">
-        <h2 class="card-title">Put it on your home screen</h2>
-        <p class="muted" id="installText">It opens like an app, full screen, and keeps the last thing it showed if the signal drops.</p>
+        <h2 class="card-title">On a computer?</h2>
+        <p class="muted" id="installText">It works here too. For the projector, open the event and tap <strong>Big screen</strong>.</p>
         <button class="btn btn-block" id="installBtn" hidden>Install the app</button>
       </section>
     </div>`;
 
-  $('#joinForm').addEventListener('submit', async (e) => {
+  $('#enterForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    const code = normCode($('#joinCode').value);
-    if (code.length < 4) { toast('Type the whole event code.', 'warn'); return; }
-    const btn = e.submitter || $('#joinForm button');
-    btn.disabled = true;
-    try {
-      const res = await rpc('et_state', { p_code: code, p_since: 0 });
-      if (!res.ok) { toast(errorText(res.error), 'bad'); return; }
-      rememberEvent(code, res.event.name);
-      location.hash = `#/e/${code}`;
-    } catch (err) {
-      toast(errorText(err.code, err.message), 'bad');
-    } finally {
-      btn.disabled = false;
-    }
+    submitCode($('#codeBox'), $('#enterForm button'));
   });
-
-  $('#staffForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const code = normCode(e.target.code.value);
-    const key = normCode(e.target.key.value);
-    const btn = $('button[type=submit]', e.target);
-    btn.disabled = true;
-    try {
-      const res = await rpc('et_role', { p_code: code, p_key: key });
-      if (!res.ok) { toast(errorText(res.error), 'bad'); return; }
-      const state = await rpc('et_state', { p_code: code, p_since: 0 }).catch(() => null);
-      rememberEvent(code, state && state.event ? state.event.name : code);
-      if (res.role === 'admin') {
-        setAdminKey(code, key);
-        location.hash = `#/e/${code}/admin`;
-      } else {
-        setStationAccess(code, { id: res.station, key });
-        location.hash = `#/e/${code}/station`;
-      }
-    } catch (err) {
-      toast(errorText(err.code, err.message), 'bad');
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
   $$('[data-forget]', root).forEach((b) => b.addEventListener('click', () => {
     forgetEvent(b.dataset.forget);
     homeView(root);
   }));
-
   setupInstall();
 }
 
@@ -139,7 +165,7 @@ function setupInstall() {
   } else if (platform() === 'ios') {
     btn.hidden = true;
     text.innerHTML = 'On iPhone or iPad: tap <strong>Share</strong> <span aria-hidden="true">(the square with an arrow)</span>, then <strong>Add to Home Screen</strong>.';
-  } else {
+  } else if (platform() === 'android') {
     btn.hidden = true;
     text.innerHTML = 'On Android: open the browser menu <span aria-hidden="true">(⋮)</span> and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>. On a computer, look for the install icon in the address bar.';
   }
@@ -206,24 +232,13 @@ function keyView(root, code, key, name) {
     <div class="page">
       <section class="card keycard">
         <h1 class="card-title">Your event is ready</h1>
-        <div class="code-pair">
-          <div>
-            <p class="eyebrow">Event code: share it</p>
-            <p class="bigcode">${esc(prettyCode(code))}</p>
-          </div>
-          <div>
-            <p class="eyebrow">Admin key: keep it private</p>
-            <p class="bigcode bigcode-secret">${esc(prettyCode(key))}</p>
-          </div>
-        </div>
-        <p>This phone is now the master admin. <strong>Write the admin key down</strong>: it is the only way to control this event from another device, and it is shown here only once (you can see it again on this phone under Share).</p>
-        <div class="row">
-          <button class="btn" id="copyKey">Copy admin key</button>
-          <a class="btn btn-primary" href="#/e/${esc(code)}/admin/program">Add the program</a>
-        </div>
+        <p>These are the codes for <strong>${esc(name)}</strong>. Anyone types one in the box on the home page, or opens its link.</p>
+        ${linksHtml(code, key, [])}
+        <p class="notice notice-gold"><strong>Write the admin key down.</strong> It is how you open Master control on another phone or a laptop. This phone is already signed in.</p>
+        <p class="muted">Station codes appear once you add stations (Master control → Stations).</p>
+        <a class="btn btn-primary btn-block" href="#/e/${esc(code)}/admin/program">Next: add the program</a>
       </section>
     </div>`;
-  $('#copyKey').addEventListener('click', () => copyText(prettyCode(key), 'Admin key copied'));
 }
 
 // ------------------------------------------------------------- join as staff
@@ -318,7 +333,7 @@ function eventView(root, code) {
     },
     render(view, live, { moved }) {
       const ev = view.event;
-      setHeader({ title: ev.name, subtitle: [ev.venue, `Code ${prettyCode(code)}`].filter(Boolean).join(' · '), back: '#/' });
+      setHeader({ title: ev.name, subtitle: ['Facilitator view', `Code ${prettyCode(code)}`].join(' · '), back: '#/' });
       if (rememberedName !== ev.name) { rememberEvent(code, ev.name); rememberedName = ev.name; }
       $('#msg').innerHTML = messageHtml(view);
       $('#hero').innerHTML = heroHtml(view, live.now());
@@ -332,11 +347,11 @@ function eventView(root, code) {
       const station = stationAccess(code);
       $('#actions').innerHTML = `
         ${isAdmin ? `<a class="btn btn-primary" href="#/e/${esc(code)}/admin">Master control</a>` : ''}
-        ${station ? `<a class="btn btn-primary" href="#/e/${esc(code)}/station">My station</a>` : ''}
-        <a class="btn" href="#/e/${esc(code)}/presenter">Presenter view</a>
-        <a class="btn" href="#/e/${esc(code)}/stage">Big screen</a>
+        ${station ? `<a class="btn btn-primary" href="#/e/${esc(code)}/station">Station control</a>` : ''}
+        <button class="btn" data-present="presenter">▶ Present</button>
+        <button class="btn" data-present="stage">Big screen</button>
         <button class="btn" id="share">Share</button>
-        ${isAdmin || station ? '' : `<a class="btn btn-ghost" href="#/e/${esc(code)}/join">Admin / facilitator sign-in</a>`}`;
+        ${isAdmin || station ? '' : '<a class="btn btn-ghost" href="#/">Have a station code or admin key?</a>'}`;
       $('#share').onclick = () => shareDialog(code, ev.name);
     },
     tick(view, live) {
@@ -370,6 +385,7 @@ function eventView(root, code) {
 const routes = [
   [/^#?\/?$/, (root) => homeView(root)],
   [/^#\/new$/, (root) => createView(root)],
+  [/^#\/go\/([A-Za-z0-9-]+)$/, (root, code) => goView(root, code)],
   [/^#\/e\/([A-Za-z0-9]+)$/, (root, code) => eventView(root, normCode(code))],
   [/^#\/e\/([A-Za-z0-9]+)\/join(?:\/([A-Za-z0-9-]+))?$/, (root, code, key) => joinView(root, normCode(code), key)],
   [/^#\/e\/([A-Za-z0-9]+)\/admin(?:\/([a-z]+))?$/, (root, code, tab) => adminView(root, normCode(code), tab)],
