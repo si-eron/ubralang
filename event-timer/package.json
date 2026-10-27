@@ -1,0 +1,13 @@
+{
+  "name": "event-time-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A live run-of-show clock and station board for events. Static site + Supabase Free.",
+  "scripts": {
+    "dev": "node tools/dev-server.js",
+    "test": "node --test tests/*.test.js tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "pg": "^8.13.0"
+  }
+}

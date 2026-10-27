@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Event Time Tracker</title>
+  <meta name="description" content="A live run-of-show clock for events. One admin moves the program along; every phone sees what is on now, how long is left, and how each station is doing.">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Event Timer">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icons/icon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="assets/app.css">
+  <script type="module" src="assets/js/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#app">Skip to content</a>
+  <header class="topbar">
+    <a class="topbar-back" id="back" href="#/" hidden aria-label="Back"><span aria-hidden="true">‹</span></a>
+    <a class="topbar-brand" href="#/" aria-label="Event Time Tracker home">
+      <img src="assets/icons/icon.svg" alt="" width="28" height="28">
+    </a>
+    <div class="topbar-title">
+      <p id="title">Event Time Tracker</p>
+      <p id="subtitle"></p>
+    </div>
+    <div id="pill"></div>
+  </header>
+  <main id="app" tabindex="-1">
+    <noscript><p class="page">This app needs JavaScript turned on.</p></noscript>
+  </main>
+  <div id="toast" hidden role="status" aria-live="polite"></div>
+  <div id="announcer" class="sr-only" aria-live="polite"></div>
+  <dialog id="dialog"></dialog>
+</body>
+</html>
