@@ -90,7 +90,7 @@ minute or two, and phones pick up the new version the next time they open it.
 | What you see | What to do |
 | --- | --- |
 | "Not connected yet" on the home page | `config.js` is still empty, or the change has not been published yet. |
-| "No event has that code" | Mistyped, or the event was deleted. Codes are six characters. |
+| "No event has that code" | Mistyped, or the event was deleted. Event codes are six characters; facilitator codes are six; the admin key is eight. |
 | The pill says **Offline** everywhere | The Supabase project is paused (see above), or the venue has no internet. Clocks keep running from the last state. |
 | The admin key is lost | In Supabase → SQL Editor, run the query below with the event code. It prints a new key and the old one stops working. |
 

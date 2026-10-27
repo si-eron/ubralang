@@ -3,7 +3,7 @@
 import { esc, $, keepAwake, prettyCode } from './ui.js';
 import { setHeader, mountEvent, setPill } from './shell.js';
 import { clockOf, fmtDuration, fmtClock, fmtSpan } from './time.js';
-import { clockTone } from './components.js';
+import { clockTone, TONE_CAPTION } from './components.js';
 
 export function stageView(root, code) {
   setHeader({ title: 'Big screen', subtitle: prettyCode(code), back: `#/e/${code}` });
@@ -15,8 +15,8 @@ export function stageView(root, code) {
         <p class="stage-event" id="stageEvent"></p>
         <p class="stage-clock" id="stageClock"></p>
       </div>
-      <p class="stage-label" id="stageLabel"></p>
       <h1 class="stage-title" id="stageTitle"></h1>
+      <p class="stage-label" id="stageLabel"></p>
       <p class="stage-time" id="stageTime"></p>
       <div class="stage-bar"><span id="stageBar"></span></div>
       <p class="stage-next" id="stageNext"></p>
@@ -65,9 +65,9 @@ export function stageView(root, code) {
       title = 'Program ended';
       time = '';
     } else {
-      label = c.status === 'hold' ? 'On hold' : c.overtime ? 'Over time' : 'Time left';
+      label = TONE_CAPTION[tone];
       title = c.segment?.title || '';
-      time = c.overtime ? fmtDuration(c.remainingMs, { sign: true }) : fmtDuration(c.remainingMs);
+      time = fmtDuration(Math.abs(c.remainingMs));
       if (c.next) next = `Next: ${c.next.title} · ${fmtSpan(c.next.duration_s * 1000)}`;
     }
     $('#stageLabel').textContent = label;

@@ -8,9 +8,10 @@ shows the same thing within a few seconds: what is on now, how much time is
 left, what is next, and whether the program is running on time, ahead, or
 behind.
 
-With **Station Mode**, each station has its own small program (for example
-*Preparing → In session → Wrapping up*). Its facilitators post where they are
-in it and how full they are (**Open**, **Filling up**, **Full house**,
+With **Station Mode**, each station has its own small program, by default
+*Students entering → Guest speaker intro → Session → Students exit*. Only that
+station's facilitators change it: they post which part it is on and how full
+it is (**Open**, **Filling up**, **Full house**,
 **Closed**), so every other station and every facilitator can see it.
 
 It costs nothing to run: a static website (GitHub Pages) and a free database
@@ -23,7 +24,7 @@ It costs nothing to run: a static website (GitHub Pages) and a free database
 | Who | Opens | Can |
 | --- | --- | --- |
 | Anyone | the event code or link | Follow the program and the stations. Change nothing. |
-| A station's facilitators | their **station code** | Update their own station: its step, how full it is, a short note. |
+| A station's facilitators | their **facilitator code** | Update their own station: its step, how full it is, a short note. Nobody else can. |
 | The master admin | the **admin key** | Run the program, edit it, set up stations, send announcements. |
 
 Codes ignore capital letters, spaces and dashes, and never use letters that
@@ -59,18 +60,28 @@ look alike (no 0/O or 1/I/L).
    - **Announcement** puts a message on every screen until you clear it.
    - On a laptop: **→** Next, **←** Back, **H** Hold or Resume.
 
-The countdown turns amber near the end of a segment (the last two minutes, or
-the last minute of a short one) and red with a **+** once it runs over.
+The clock card is easy to read from across a room, and its colour says how
+things stand:
+
+- **Plain:** plenty of time. It says *Time left*.
+- **Orange, the whole card:** almost out of time. It says *Almost time*.
+  This is the last two minutes of a segment, or the last minute of one
+  shorter than ten minutes.
+- **Red, the whole card:** over time. It says *Over time by* and counts up.
+
+The big screen does the same with the whole screen.
 
 ## Station Mode
 
 Turn it on when creating the event, or under **Stations** later. Then, for
-each station, give it a name, where it is, and its steps, one per line. Save,
-and each station gets its own code. **Copy link** gives a link that signs the
+each station, give it a name and where it is. Its steps start as *Students
+entering, Guest speaker intro, Session, Students exit*; change them if a
+station runs differently (one per line). Save, and each station gets its own
+**facilitator code**. **Copy link** gives a link that signs the
 facilitator straight in.
 
-A facilitator opens the link (or the event, then **I'm staff**, then their
-code) and sees:
+A facilitator opens the link (or the event, then **I'm a facilitator**, then
+their code) and sees:
 
 - the main program's clock at the top, so they know what the main program is
   doing;

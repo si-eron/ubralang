@@ -2,11 +2,14 @@
 import { clockOf, timelineOf, fmtDuration, fmtClock, fmtDelta, fmtSpan, stationSince } from './time.js';
 import { esc, CROWD, ago } from './ui.js';
 
-// When the countdown turns amber.
+// When the countdown turns orange: the last two minutes of a segment, or the
+// last minute of one shorter than ten minutes.
 export function warnAtMs(allotMs) {
   return allotMs >= 10 * 60_000 ? 120_000 : 60_000;
 }
 
+// ok (plenty of time) · warn (orange: almost out) · bad (red: over time)
+// · hold (stopped) · idle (not started or finished)
 export function clockTone(clock) {
   if (clock.status === 'hold') return 'hold';
   if (clock.status !== 'live') return 'idle';
@@ -15,7 +18,16 @@ export function clockTone(clock) {
   return 'ok';
 }
 
-// The big card: what is on now, how long is left, what is next.
+// The words above the big number, for each tone.
+export const TONE_CAPTION = {
+  ok: 'Time left',
+  warn: 'Almost time',
+  bad: 'Over time by',
+  hold: 'On hold · time left',
+  idle: '',
+};
+
+// The big card everyone watches: what is on now, how long is left, what is next.
 export function heroHtml(view, now, { compact = false } = {}) {
   const ev = view.event;
   const clock = clockOf(view, now);
@@ -24,53 +36,58 @@ export function heroHtml(view, now, { compact = false } = {}) {
   let label;
   let title;
   let big;
+  let caption = TONE_CAPTION[tone];
   let sub = '';
 
   if (clock.status === 'ready') {
-    label = 'Not started';
-    title = view.segments.length ? 'Waiting to begin' : 'No program yet';
+    label = 'Not started yet';
+    title = view.segments.length ? `First: ${view.segments[0].title}` : 'No program yet';
     if (clock.startsInMs != null && clock.startsInMs > 0) {
+      caption = 'Starts in';
       big = fmtDuration(clock.startsInMs);
-      sub = `Starts at ${fmtClock(ev.planned_start)}`;
+      sub = `Planned for ${fmtClock(ev.planned_start)}`;
     } else if (clock.startsInMs != null) {
-      big = fmtDuration(-clock.startsInMs, { sign: true });
-      sub = `Was due at ${fmtClock(ev.planned_start)}`;
+      caption = 'Starting late by';
+      big = fmtDuration(-clock.startsInMs);
+      sub = `Was planned for ${fmtClock(ev.planned_start)}`;
     } else {
-      big = '—:—';
+      big = '';
+      sub = 'The clock starts when the admin presses Start.';
     }
   } else if (clock.status === 'ended') {
-    label = 'Ended';
-    title = 'Program finished';
+    label = 'Finished';
+    title = 'The program has ended';
+    caption = 'Ended at';
     big = fmtClock(ev.ended_at);
-    sub = ev.started_at ? `Ran ${fmtSpan(ev.ended_at - ev.started_at)}, ${fmtClock(ev.started_at)}–${fmtClock(ev.ended_at)}` : '';
+    sub = ev.started_at ? `Ran ${fmtSpan(ev.ended_at - ev.started_at)}, ${fmtClock(ev.started_at)} to ${fmtClock(ev.ended_at)}` : '';
   } else {
-    label = clock.status === 'hold' ? 'On hold' : `Now · ${clock.index + 1} of ${clock.count}`;
+    label = `Now · ${clock.index + 1} of ${clock.count}`;
     title = clock.segment ? clock.segment.title : '';
-    big = clock.overtime ? fmtDuration(clock.remainingMs, { sign: true }) : fmtDuration(clock.remainingMs);
-    const extra = ev.segment_extra_s ? ` (${ev.segment_extra_s > 0 ? '+' : '−'}${fmtSpan(Math.abs(ev.segment_extra_s) * 1000)})` : '';
-    sub = clock.overtime
-      ? `Over time · ${fmtSpan(clock.allotMs)} slot${extra}`
-      : `left of ${fmtSpan(clock.allotMs)}${extra} · started ${fmtClock(ev.segment_started_at)}`;
+    big = fmtDuration(Math.abs(clock.remainingMs));
+    const extra = ev.segment_extra_s ? ` (${ev.segment_extra_s > 0 ? '+' : '−'}${fmtSpan(Math.abs(ev.segment_extra_s) * 1000)} added)` : '';
+    sub = `${fmtSpan(clock.allotMs)} slot${extra} · started ${fmtClock(ev.segment_started_at)}`;
   }
 
   const lead = clock.segment && clock.status !== 'ready' && clock.status !== 'ended' && clock.segment.lead
     ? `<p class="hero-lead">${esc(clock.segment.lead)}</p>` : '';
   const progress = clock.status === 'live' || clock.status === 'hold'
     ? `<div class="bar" aria-hidden="true"><span style="width:${(clock.progress * 100).toFixed(2)}%"></span></div>` : '';
-  const next = clock.next && clock.status !== 'ended'
-    ? `<p class="hero-next"><span class="eyebrow">Next</span> ${esc(clock.next.title)} <span class="muted">· ${fmtSpan(clock.next.duration_s * 1000)}</span></p>`
+  // Before the start the title already names the first segment, so "then" is the second.
+  const upcoming = clock.status === 'ready' ? view.segments[1] : clock.next;
+  const next = upcoming && clock.status !== 'ended'
+    ? `<p class="hero-next"><span class="eyebrow">${clock.status === 'ready' ? 'Then' : 'Next'}</span> ${esc(upcoming.title)} <span class="hero-dim">· ${fmtSpan(upcoming.duration_s * 1000)}</span></p>`
     : '';
   const facts = [];
   if (delta && clock.status !== 'ended') facts.push(`<span class="chip chip-${delta.tone}">${esc(delta.label)}</span>`);
   if (delta && clock.status === 'ended') facts.push(`<span class="chip chip-${delta.tone}">Finished ${esc(delta.label.toLowerCase())}</span>`);
-  if (clock.projectedEnd && clock.status !== 'ended' && clock.count) facts.push(`<span class="muted">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
+  if (clock.projectedEnd && clock.status !== 'ended' && clock.count) facts.push(`<span class="hero-dim">Ends about ${fmtClock(clock.projectedEnd)}</span>`);
 
   return `
     <section class="hero hero-${tone}${compact ? ' hero-compact' : ''}" aria-label="Program clock">
       <p class="hero-label"><span class="state-dot" aria-hidden="true"></span>${esc(label)}</p>
       <h2 class="hero-title">${esc(title)}</h2>
       ${lead}
-      <p class="hero-time" aria-hidden="${clock.status === 'live' ? 'true' : 'false'}">${esc(big)}</p>
+      ${big ? `<p class="hero-caption">${esc(caption)}</p><p class="hero-time">${esc(big)}</p>` : ''}
       ${sub ? `<p class="hero-sub">${esc(sub)}</p>` : ''}
       ${progress}
       ${compact ? '' : next}
@@ -149,7 +166,7 @@ export function stationCard(station, now, { mine = false } = {}) {
     <p class="station-phase"><strong>${esc(phase)}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}</p>
     ${phaseSteps(station)}
     ${station.note ? `<p class="station-note">“${esc(station.note)}”</p>` : ''}
-    <p class="station-updated muted">${station.pending ? 'Saved on this phone · uploading' : station.updated_at ? `Updated ${ago(station.updated_at, now)}${station.updated_by ? ` by ${esc(station.updated_by)}` : ''}` : 'No update yet'}</p>
+    <p class="station-updated muted">${station.pending ? 'Saved on this phone · uploading' : station.updated_at ? `Updated ${ago(station.updated_at, now)} by ${station.updated_by ? esc(station.updated_by) : 'a facilitator'}` : 'No update from the facilitators yet'}</p>
   </article>`;
 }
 

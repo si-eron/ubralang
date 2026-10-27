@@ -171,3 +171,34 @@ test('moving between screens never doubles a tap; a deleted event says so', { sk
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
 });
+
+test('the clock turns orange when time is almost up and red when it is over', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Colour check', p_venue: '' });
+  const admin = (action, args = {}) => stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: action, p_args: args });
+  // 5 min with plenty left · 1 min, so already inside its last minute · 2 s, soon over.
+  await admin('program', { segments: [{ title: 'Calm', duration_s: 300 }, { title: 'Nearly', duration_s: 60 }, { title: 'Over', duration_s: 2 }] });
+  await admin('start', { from: -1 });
+
+  const p = await phone();
+  await p.page.goto(url(`#/e/${made.code}`));
+  await p.page.waitForSelector('.hero-ok .hero-caption:has-text("Time left")');
+
+  await admin('next', { from: 0 });
+  await p.page.waitForSelector('.hero-warn .hero-caption:has-text("Almost time")', { timeout: 6000 });
+  const orange = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
+  assert.equal(orange, 'rgb(194, 65, 12)');
+
+  await admin('next', { from: 1 });
+  await p.page.waitForSelector('.hero-bad .hero-caption:has-text("Over time by")', { timeout: 10000 });
+  await p.page.waitForTimeout(2000);
+  const red = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
+  assert.equal(red, 'rgb(212, 42, 47)');
+  const shown = await secondsOnScreen(p.page);
+  assert.ok(shown >= 2 && shown <= 8, `shows ${shown}s over`);
+
+  await p.page.goto(url(`#/e/${made.code}/stage`));
+  await p.page.waitForSelector('.stage[data-tone="bad"]');
+  assert.equal(await p.page.textContent('#stageLabel'), 'Over time by');
+  assert.deepEqual(p.page.errors, []);
+  await p.ctx.close();
+});

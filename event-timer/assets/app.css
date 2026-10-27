@@ -13,8 +13,10 @@
   --accent-soft: #e6ebfc;
   --ok: #17803d;
   --ok-soft: #e2f3e7;
-  --warn: #a35a00;
-  --warn-soft: #fbefdc;
+  --warn: #c2410c;
+  --warn-soft: #ffedd5;
+  --orange: #c2410c; /* white text on it: 5.2:1 */
+  --red: #d42a2f;
   --bad: #c0262d;
   --bad-soft: #fbe4e4;
   --hold: #6a4bc4;
@@ -41,8 +43,10 @@
     --accent-soft: #1d2440;
     --ok: #5fcf7d;
     --ok-soft: #13291b;
-    --warn: #f3ad4e;
-    --warn-soft: #33240f;
+    --warn: #fb923c;
+    --warn-soft: #3a1d0b;
+    --orange: #c2410c;
+    --red: #b91c1c;
     --bad: #ff7a7a;
     --bad-soft: #3a1618;
     --hold: #b9a4ff;
@@ -206,41 +210,60 @@ input:focus, textarea:focus { border-color: var(--accent); outline: 2px solid co
 .chip-bad { background: var(--bad-soft); color: var(--bad); }
 .chip-live { background: var(--accent-soft); color: var(--accent); }
 
-/* ------------------------------------------------------------- hero clock */
+/* ------------------------------------------------------------- hero clock
+   The card everyone watches. Plenty of time: calm. Almost out: the whole card
+   turns orange. Over time: red. Readable from across a room. */
 
 .hero {
   position: relative; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px);
-  padding: 18px 18px 16px; box-shadow: var(--shadow); display: grid; gap: 4px;
-  --tone: var(--ink-2); --tone-soft: var(--surface-2);
+  background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 6px);
+  padding: 20px 20px 18px; box-shadow: var(--shadow); display: grid; gap: 2px;
+  --tone: var(--ink-2); --dim: var(--ink-2);
+  transition: background-color 0.4s, border-color 0.4s, color 0.4s;
 }
-.hero-ok { --tone: var(--ok); --tone-soft: var(--ok-soft); }
-.hero-warn { --tone: var(--warn); --tone-soft: var(--warn-soft); }
-.hero-bad { --tone: var(--bad); --tone-soft: var(--bad-soft); }
-.hero-hold { --tone: var(--hold); --tone-soft: var(--hold-soft); }
-.hero::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--tone); }
-.hero-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tone); }
-.state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--tone); }
+.hero-ok { --tone: var(--ok); }
+.hero-hold { --tone: var(--hold); background: var(--hold-soft); border-color: color-mix(in srgb, var(--hold) 40%, transparent); }
+.hero-warn, .hero-bad { color: #fff; --tone: #fff; --dim: rgb(255 255 255 / 0.86); border-color: transparent; }
+.hero-warn { background: var(--orange); }
+.hero-bad { background: var(--red); }
+.hero::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 5px; background: var(--tone); }
+.hero-warn::before, .hero-bad::before { display: none; }
+
+.hero-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; color: var(--tone); }
+.state-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--tone); }
 .hero-ok .state-dot, .hero-warn .state-dot, .hero-bad .state-dot { animation: pulse 1.6s ease-in-out infinite; }
-.hero-title { font-size: clamp(22px, 5.5vw, 30px); line-height: 1.15; letter-spacing: -0.015em; margin-top: 2px; overflow-wrap: anywhere; }
-.hero-lead { color: var(--ink-2); }
+.hero-title { font-size: clamp(24px, 6.4vw, 36px); line-height: 1.12; letter-spacing: -0.02em; margin-top: 4px; overflow-wrap: anywhere; }
+.hero-lead { color: var(--dim); font-size: 17px; }
+.hero-caption { margin-top: 12px; font-size: 15px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
 .hero-time {
-  font: 700 clamp(64px, 21vw, 112px)/1 var(--font); font-variant-numeric: tabular-nums;
-  letter-spacing: -0.04em; color: var(--tone); margin: 6px 0 2px;
+  font: 800 clamp(84px, 27vw, 156px)/0.95 var(--font); font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em; color: var(--ink); margin: 0 0 4px;
 }
-.hero-idle .hero-time, .hero-ok .hero-time { color: var(--ink); }
-.hero-sub { color: var(--ink-2); font-size: 14px; }
-.bar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 10px 0 4px; }
+.hero-warn .hero-time, .hero-bad .hero-time { color: #fff; }
+.hero-hold .hero-time { color: var(--hold); animation: pulse 2s ease-in-out infinite; }
+.hero-idle .hero-time { font-size: clamp(56px, 17vw, 96px); }
+.hero-sub { color: var(--dim); font-size: 15px; }
+.hero-dim { color: var(--dim); }
+.bar { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 12px 0 4px; }
 .bar span { display: block; height: 100%; background: var(--tone); border-radius: inherit; transition: width 0.25s linear; }
-.hero-next { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.hero-ok .bar span { background: var(--ink); }
+.hero-warn .bar, .hero-bad .bar { background: rgb(255 255 255 / 0.3); }
+.hero-next { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 17px; overflow-wrap: anywhere; }
+.hero-warn .hero-next, .hero-bad .hero-next { border-top-color: rgb(255 255 255 / 0.35); }
+.hero-warn .eyebrow, .hero-bad .eyebrow { color: var(--dim); }
 .hero-next .eyebrow { margin-right: 6px; }
-.hero-facts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; font-size: 14px; }
-.hero-compact { padding: 12px 14px; }
-.hero-compact .hero-title { font-size: 18px; }
-.hero-compact .hero-time { font-size: 44px; margin: 2px 0 0; }
-.hero-compact .bar { margin: 6px 0 0; }
+.hero-facts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 14px; }
+.hero-warn .chip, .hero-bad .chip { background: rgb(255 255 255 / 0.22); color: #fff; }
+.hero-compact { padding: 14px 16px; }
+.hero-compact .hero-title { font-size: 19px; }
+.hero-compact .hero-caption { margin-top: 6px; font-size: 12px; }
+.hero-compact .hero-time { font-size: 52px; }
+.hero-compact .bar { margin: 6px 0 0; height: 8px; }
 .flash { animation: flash 1.2s ease-out; }
-@keyframes flash { 0% { box-shadow: 0 0 0 4px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@keyframes flash { 0% { box-shadow: 0 0 0 5px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--ink-2); padding: 0 4px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
 
 .announce {
   background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
@@ -465,9 +488,14 @@ body.is-stage .topbar { display: none; }
   gap: 1.5vh; cursor: none;
 }
 .stage[data-tone="ok"] { --tone: #f4f4f1; }
-.stage[data-tone="warn"] { --tone: #ffb547; }
-.stage[data-tone="bad"] { --tone: #ff5a5f; }
+/* Almost out of time: the whole screen goes orange. Over time: red. */
+.stage[data-tone="warn"] { --tone: #fff; background: #c2410c; }
+.stage[data-tone="bad"] { --tone: #fff; background: #b91c1c; }
 .stage[data-tone="hold"] { --tone: #b9a4ff; }
+.stage { transition: background-color 0.5s; }
+.stage[data-tone="warn"] .stage-top, .stage[data-tone="bad"] .stage-top,
+.stage[data-tone="warn"] .stage-next, .stage[data-tone="bad"] .stage-next { color: rgb(255 255 255 / 0.85); }
+.stage[data-tone="warn"] .stage-bar, .stage[data-tone="bad"] .stage-bar { background: rgb(255 255 255 / 0.3); }
 .stage.show-tools { cursor: auto; }
 .stage-top { position: absolute; top: max(2.5vh, env(safe-area-inset-top)); left: 4vw; right: 4vw; display: flex; justify-content: space-between; font-size: clamp(14px, 2.2vw, 28px); color: #8a8f98; }
 .stage-label { font-size: clamp(16px, 2.6vw, 34px); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone); }

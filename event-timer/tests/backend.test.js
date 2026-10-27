@@ -219,7 +219,7 @@ test('stations: each code opens one station; admin opens all', async () => {
     ],
   });
   assert.equal(made.event.stations_enabled, true);
-  assert.deepEqual(made.stations[1].phases, ['Preparing', 'In session', 'Wrapping up']);
+  assert.deepEqual(made.stations[1].phases, ['Students entering', 'Guest speaker intro', 'Session', 'Students exit']);
   const { codes } = await ev.admin('codes');
   const [one, two] = made.stations;
 
@@ -243,7 +243,7 @@ test('stations: each code opens one station; admin opens all', async () => {
   assert.equal(byAdmin.stations[1].crowd, 'closed');
 
   const clamp = await update(two, codes[1].code, { phase_index: 99 });
-  assert.equal(clamp.stations[1].phase_index, 2);
+  assert.equal(clamp.stations[1].phase_index, 3, 'the last of the four default steps');
 });
 
 test('stations: the update pressed last wins, even if it arrives first', async () => {

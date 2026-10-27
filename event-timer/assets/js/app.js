@@ -143,7 +143,7 @@ function createView(root) {
             <input type="time" name="time" aria-label="Time">
           </div>
         </fieldset>
-        <label class="check"><input type="checkbox" name="stations"> <span><strong>Use Station Mode</strong><br><span class="muted">Groups rotate through stations, and each station posts its progress and whether it is full.</span></span></label>
+        <label class="check"><input type="checkbox" name="stations"> <span><strong>Use Station Mode</strong><br><span class="muted">Each station runs its own program (students entering, guest speaker intro, session, students exit). Its facilitators post where they are and whether they are full.</span></span></label>
         <button class="btn btn-primary btn-block" type="submit">Create event</button>
       </form>
     </div>`;
@@ -205,14 +205,14 @@ function keyView(root, code, key, name) {
 // ------------------------------------------------------------- join as staff
 
 function joinView(root, code, presetKey) {
-  setHeader({ title: 'Staff sign-in', subtitle: prettyCode(code), back: `#/e/${code}` });
+  setHeader({ title: 'Facilitator sign-in', subtitle: prettyCode(code), back: `#/e/${code}` });
   setPill('');
   root.innerHTML = `
     <div class="page">
       <form class="card form" id="roleForm" autocomplete="off">
-        <h1 class="card-title">Are you working this event?</h1>
-        <p class="muted">Type the <strong>station code</strong> you were given to update your station, or the <strong>admin key</strong> to run the program.</p>
-        <label class="field"><span>Station code or admin key</span>
+        <h1 class="card-title">Facilitating a station?</h1>
+        <p class="muted">Type the <strong>facilitator code</strong> for your station. Facilitators are the ones who update their station: which part of its program it is on, and whether it is full. (The master admin types the <strong>admin key</strong> here.)</p>
+        <label class="field"><span>Facilitator code or admin key</span>
           <input name="key" required autocapitalize="characters" spellcheck="false" maxlength="12" value="${esc(presetKey || '')}"></label>
         <button class="btn btn-primary btn-block" type="submit">Continue</button>
         <p class="field-help">Just watching? You don’t need a code. <a href="#/e/${esc(code)}">Go to the event</a>.</p>
@@ -254,6 +254,7 @@ function eventView(root, code) {
     <div class="page page-event">
       <div id="msg"></div>
       <div id="hero"></div>
+      <p class="legend" aria-label="What the colours mean"><span style="--c: var(--orange)">Orange: almost time</span><span style="--c: var(--red)">Red: over time</span></p>
       <div class="tabs" role="tablist" id="tabs"></div>
       <div id="panel" role="tabpanel"></div>
       <nav class="actions" id="actions" aria-label="More"></nav>
@@ -310,7 +311,7 @@ function eventView(root, code) {
         ${station ? `<a class="btn btn-primary" href="#/e/${esc(code)}/station">My station</a>` : ''}
         <a class="btn" href="#/e/${esc(code)}/stage">Big screen</a>
         <button class="btn" id="share">Share</button>
-        ${isAdmin || station ? '' : `<a class="btn btn-ghost" href="#/e/${esc(code)}/join">I’m staff</a>`}`;
+        ${isAdmin || station ? '' : `<a class="btn btn-ghost" href="#/e/${esc(code)}/join">I’m a facilitator</a>`}`;
       $('#share').onclick = () => shareDialog(code, ev.name);
     },
     tick(view, live) {

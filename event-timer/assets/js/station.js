@@ -50,7 +50,7 @@ export function stationView(root, code) {
       toast('No connection. Saved on this phone and shown here; it uploads when you are back online.', 'warn', 5000);
     } else if (res.ok === false) {
       if (res.error === 'wrong_key' || res.error === 'no_station') {
-        toast('This station code no longer works. Ask the admin for the new one.', 'bad', 7000);
+        toast('This facilitator code no longer works. Ask the admin for the new one.', 'bad', 7000);
         setStationAccess(code, null);
         location.hash = `#/e/${code}/join`;
       } else {
@@ -74,14 +74,14 @@ export function stationView(root, code) {
     $('#mine').innerHTML = `
       <header class="mine-head">
         <div>
-          <p class="eyebrow">Your station</p>
+          <p class="eyebrow">Facilitator · your station</p>
           <h1 class="card-title">${esc(s.name)}</h1>
           ${s.location ? `<p class="muted">${esc(s.location)}</p>` : ''}
         </div>
         ${s.pending ? '<span class="chip chip-warn">Uploading…</span>' : ''}
       </header>
 
-      <h2 class="eyebrow">Where are you in your program?</h2>
+      <h2 class="eyebrow">Which part of the program is your station on?</h2>
       <p class="mine-phase"><strong>${esc(s.phase_index >= 0 ? s.phases[s.phase_index] : 'Not started')}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}</p>
       ${nextPhase ? `<button class="btn btn-go" data-phase="${s.phase_index + 1}"><span class="go-label">${s.phase_index < 0 ? 'Start' : 'Next'} ›</span><span class="go-sub">${esc(nextPhase)}</span></button>` : ''}
       <div class="phase-list" role="group" aria-label="Choose your step">
@@ -90,7 +90,7 @@ export function stationView(root, code) {
         <button class="phase-btn phase-reset${s.phase_index < 0 ? ' is-on' : ''}" data-phase="-1" aria-pressed="${s.phase_index < 0}">Not started</button>
       </div>
 
-      <h2 class="eyebrow">How full are you?</h2>
+      <h2 class="eyebrow">Is your station full?</h2>
       <div class="crowd-grid" role="group" aria-label="How full is your station">
         ${Object.entries(CROWD).map(([k, c]) => `<button class="crowd-btn crowd-${c.tone}${s.crowd === k ? ' is-on' : ''}" data-crowd="${k}" aria-pressed="${s.crowd === k}">
           ${esc(c.label)}</button>`).join('')}
@@ -121,7 +121,7 @@ export function stationView(root, code) {
       return;
     }
     if (e.target.closest('[data-clearnote]')) { update({ note: '' }, 'Note cleared'); return; }
-    if (e.target.id === 'leave' && await confirmDialog({ title: 'Sign out of this station?', body: 'You will need the station code to update it again.', confirm: 'Sign out' })) {
+    if (e.target.id === 'leave' && await confirmDialog({ title: 'Sign out of this station?', body: 'You will need the facilitator code to update it again.', confirm: 'Sign out' })) {
       setStationAccess(code, null);
       location.hash = `#/e/${code}`;
     }

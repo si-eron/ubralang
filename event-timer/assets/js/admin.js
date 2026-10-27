@@ -6,6 +6,9 @@ import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from '
 import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
+// What a station runs through, unless the admin types something else.
+export const DEFAULT_STEPS = ['Students entering', 'Guest speaker intro', 'Session', 'Students exit'];
+
 const TABS = [
   ['run', 'Run'],
   ['program', 'Program'],
@@ -261,14 +264,14 @@ export function adminView(root, code, initialTab) {
   // -------------------------------------------------------- stations editor
 
   const toStationDraft = (s) => ({ id: s.id, name: s.name, location: s.location, phases: s.phases.join('\n') });
-  const newStation = (n) => ({ id: null, name: `Station ${n}`, location: '', phases: 'Preparing\nIn session\nWrapping up' });
+  const newStation = (n) => ({ id: null, name: `Station ${n}`, location: '', phases: DEFAULT_STEPS.join('\n') });
 
   function drawStationsEditor(view) {
     const ev = view.event;
     $('#panel').innerHTML = `
       <h2 class="panel-title">Station Mode</h2>
       <label class="check toggle"><input type="checkbox" id="stationsOn" ${ev.stations_enabled ? 'checked' : ''}>
-        <span><strong>Use stations at this event</strong><br><span class="muted">Each station gets its own code. Its facilitators post which part of their program they are on and whether they are full; everyone sees every station.</span></span></label>
+        <span><strong>Use stations at this event</strong><br><span class="muted">Each station gets its own facilitator code. Only that station’s facilitators change it: which part of its program it is on, and whether it is full. Everyone sees every station.</span></span></label>
       <div ${ev.stations_enabled ? '' : 'hidden'}>
         <ol class="edit-list" id="stationList">${stationsDraft.map((s, i) => `
           <li class="edit-row" data-i="${i}">
@@ -276,7 +279,7 @@ export function adminView(root, code, initialTab) {
             <div class="edit-fields">
               <input data-f="name" value="${esc(s.name)}" maxlength="60" placeholder="Station name" aria-label="Station ${i + 1} name">
               <input data-f="location" value="${esc(s.location)}" maxlength="80" placeholder="Where (optional)" aria-label="Station ${i + 1} location">
-              <label class="field"><span class="field-help">Its program, one step per line</span>
+              <label class="field"><span class="field-help">Its program, one step per line (the facilitators move through these)</span>
                 <textarea data-f="phases" rows="3" aria-label="Station ${i + 1} steps">${esc(s.phases)}</textarea></label>
             </div>
             <div class="edit-tools">
@@ -292,8 +295,8 @@ export function adminView(root, code, initialTab) {
           <button class="btn btn-ghost" id="stationsDiscard">Discard</button>
           <button class="btn btn-primary" id="stationsSaveBtn">Save stations</button>
         </div>
-        <h2 class="panel-title">Station codes</h2>
-        <p class="muted panel-help">Give each station’s facilitators their code or link. A code opens only its own station.</p>
+        <h2 class="panel-title">Facilitator codes</h2>
+        <p class="muted panel-help">Give each station’s facilitators their code, or send them the link: it signs them straight in. A code opens only its own station.</p>
         <div id="codes">${codesHtml(view)}</div>
       </div>`;
     if (ev.stations_enabled && !codes && view.stations.length) loadCodes();
