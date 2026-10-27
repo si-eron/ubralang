@@ -3,7 +3,7 @@
    up on the next open with nothing to clear. When the network is missing or
    slow, the copy saved last time is used, so the app still opens at a venue
    with bad signal and shows the last state it saw. */
-const CACHE = 'event-timer-v10';
+const CACHE = 'event-timer-v11';
 const SHELL = [
   './',
   'index.html',

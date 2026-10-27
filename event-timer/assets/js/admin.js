@@ -38,6 +38,7 @@ export function adminView(root, code, initialTab) {
   let lastPanelAt = 0;
   let lastStationSig = '';
   let countdownDone = false;
+  let controlsSig = '';
 
   setHeader({ title: 'Master control', subtitle: prettyCode(code), back: `#/e/${code}` });
   document.body.classList.add('is-admin');
@@ -103,7 +104,7 @@ export function adminView(root, code, initialTab) {
       setTimeout(() => {
         busy = false;
         const v = cur();
-        if (alive && v) drawControls(v);
+        if (alive && v) { controlsSig = ''; drawControls(v); }
       }, 500);
     }
   }
@@ -147,7 +148,9 @@ export function adminView(root, code, initialTab) {
     } else if (ev.status === 'countdown') {
       primary = `<button class="btn btn-go" data-act="startnow"><span class="go-label">Start now</span><span class="go-sub">Skip the countdown · ${esc(segs[0]?.title || '')}</span></button>`;
     } else if (ev.status === 'ended') {
-      primary = '<button class="btn btn-go" disabled><span class="go-label">Program ended</span><span class="go-sub">Back reopens the last segment</span></button>';
+      // Run it again (a second batch, a rehearsal, an End pressed by mistake).
+      primary = `<button class="btn btn-go" data-act="restart"><span class="go-label">↻ Restart program</span><span class="go-sub">Program ended · start again from: ${esc(segs[0]?.title || 'the first item')}</span></button>
+        <button class="btn btn-ghost btn-small" data-act="resetonly" type="button">Reset to “not started” instead</button>`;
     } else if (nextSeg) {
       primary = `<button class="btn btn-go" data-act="next"><span class="go-label">Next ›</span><span class="go-sub">${esc(nextSeg.title)}</span></button>`;
     } else {
@@ -534,6 +537,19 @@ export function adminView(root, code, initialTab) {
       const v = cur();
       if (a === 'next') guarded(next);
       if (a === 'startnow') guarded(() => act('start', { from: -1, now: true }));
+      if (a === 'restart') {
+        if (await confirmDialog({ title: 'Restart the program?', body: 'It starts again from the first item, on every screen. The times recorded this run are cleared; the program, stations and notes stay.', confirm: 'Restart' })) {
+          guarded(async () => {
+            await act('reset', {}, { quiet: true });
+            await act('start', { from: -1, now: true }, { quiet: true });
+          });
+        }
+      }
+      if (a === 'resetonly') {
+        if (await confirmDialog({ title: 'Back to “not started”?', body: 'The clock goes back to before the start, with no timer, until you press Start again.', confirm: 'Reset' })) {
+          guarded(() => act('reset', {}, { quiet: true }));
+        }
+      }
       if (a === 'prev') guarded(() => act('prev', { from: v.event.current_index }));
       if (a === 'hold') guarded(() => act('hold'));
       if (a === 'resume') guarded(() => act('resume'));
@@ -802,9 +818,13 @@ export function adminView(root, code, initialTab) {
       }
       if (!busy) {
         // Keep whatever is being typed in the announcement box.
+        // Redraw the buttons only when something they show has changed, so a
+        // tap is never lost on a button being replaced by an update.
+        const ev2 = view.event;
+        const sig = [ev2.status, ev2.current_index, ev2.message, ev2.planned_start, ev2.planned_start > live.now(), view.segments.map((x) => x.title).join('|')].join('§');
         const typed = $('#announceText')?.value;
         const hadFocus = document.activeElement?.id === 'announceText';
-        drawControls(view);
+        if (sig !== controlsSig) { controlsSig = sig; drawControls(view); }
         if (typed) $('#announceText').value = typed;
         if (hadFocus) $('#announceText').focus();
       }
