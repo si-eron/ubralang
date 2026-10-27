@@ -7,6 +7,8 @@ import { recentEvents, rememberEvent, forgetEvent, adminKey, setAdminKey, statio
 import { adminView } from './admin.js';
 import { stationView } from './station.js';
 import { stageView } from './stage.js';
+import { presenterView } from './presenter.js';
+import { needsInstall, installView, isStandalone, platform, canPromptInstall, promptInstall, onInstallChange } from './install.js';
 
 const app = document.getElementById('app');
 // ------------------------------------------------------------- home
@@ -48,9 +50,19 @@ function homeView(root) {
         </ul>
       </section>` : ''}
 
+      <form class="card form" id="staffForm" autocomplete="off">
+        <h2 class="card-title">Admin or facilitator? Sign in</h2>
+        <p class="muted">Type the event code, then your <strong>admin key</strong> (8 characters) to run the program, or your <strong>facilitator code</strong> (6 characters) to update your station.</p>
+        <label class="field"><span>Event code</span>
+          <input name="code" required autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="ABC-123"></label>
+        <label class="field"><span>Admin key or facilitator code</span>
+          <input name="key" required autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="ABCD-EFGH"></label>
+        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+      </form>
+
       <section class="card">
-        <h2 class="card-title">Running an event?</h2>
-        <p class="muted">Make the event, add the program, and share the code. You become its master admin.</p>
+        <h2 class="card-title">Running a new event?</h2>
+        <p class="muted">Make the event, add the program, and share the code. You become its master admin and get your admin key.</p>
         <a class="btn btn-primary btn-block" href="#/new">Create an event</a>
       </section>
 
@@ -79,6 +91,31 @@ function homeView(root) {
     }
   });
 
+  $('#staffForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const code = normCode(e.target.code.value);
+    const key = normCode(e.target.key.value);
+    const btn = $('button[type=submit]', e.target);
+    btn.disabled = true;
+    try {
+      const res = await rpc('et_role', { p_code: code, p_key: key });
+      if (!res.ok) { toast(errorText(res.error), 'bad'); return; }
+      const state = await rpc('et_state', { p_code: code, p_since: 0 }).catch(() => null);
+      rememberEvent(code, state && state.event ? state.event.name : code);
+      if (res.role === 'admin') {
+        setAdminKey(code, key);
+        location.hash = `#/e/${code}/admin`;
+      } else {
+        setStationAccess(code, { id: res.station, key });
+        location.hash = `#/e/${code}/station`;
+      }
+    } catch (err) {
+      toast(errorText(err.code, err.message), 'bad');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   $$('[data-forget]', root).forEach((b) => b.addEventListener('click', () => {
     forgetEvent(b.dataset.forget);
     homeView(root);
@@ -89,38 +126,25 @@ function homeView(root) {
 
 // ------------------------------------------------------------- install
 
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  setupInstall();
-});
-
-function isStandalone() {
-  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-}
-
+// The card on the home page (the full "install first" screen is install.js).
 function setupInstall() {
   const card = $('#installCard');
   if (!card) return;
   if (isStandalone()) { card.hidden = true; return; }
   const btn = $('#installBtn');
   const text = $('#installText');
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (deferredPrompt) {
+  if (canPromptInstall()) {
     btn.hidden = false;
-    btn.onclick = async () => {
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice.catch(() => null);
-      deferredPrompt = null;
-      btn.hidden = true;
-    };
-  } else if (ios) {
-    text.innerHTML = 'On iPhone or iPad: open this page in <strong>Safari</strong>, tap <strong>Share</strong> <span aria-hidden="true">(the square with an arrow)</span>, then <strong>Add to Home Screen</strong>.';
+    btn.onclick = async () => { await promptInstall(); setupInstall(); };
+  } else if (platform() === 'ios') {
+    btn.hidden = true;
+    text.innerHTML = 'On iPhone or iPad: tap <strong>Share</strong> <span aria-hidden="true">(the square with an arrow)</span>, then <strong>Add to Home Screen</strong>.';
   } else {
+    btn.hidden = true;
     text.innerHTML = 'On Android: open the browser menu <span aria-hidden="true">(⋮)</span> and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>. On a computer, look for the install icon in the address bar.';
   }
 }
+onInstallChange(setupInstall);
 
 // ------------------------------------------------------------- create
 
@@ -205,12 +229,12 @@ function keyView(root, code, key, name) {
 // ------------------------------------------------------------- join as staff
 
 function joinView(root, code, presetKey) {
-  setHeader({ title: 'Facilitator sign-in', subtitle: prettyCode(code), back: `#/e/${code}` });
+  setHeader({ title: 'Admin / facilitator sign-in', subtitle: prettyCode(code), back: `#/e/${code}` });
   setPill('');
   root.innerHTML = `
     <div class="page">
       <form class="card form" id="roleForm" autocomplete="off">
-        <h1 class="card-title">Facilitating a station?</h1>
+        <h1 class="card-title">Admin or facilitator?</h1>
         <p class="muted">Type the <strong>facilitator code</strong> for your station. Facilitators are the ones who update their station: which part of its program it is on, and whether it is full. (The master admin types the <strong>admin key</strong> here.)</p>
         <label class="field"><span>Facilitator code or admin key</span>
           <input name="key" required autocapitalize="characters" spellcheck="false" maxlength="12" value="${esc(presetKey || '')}"></label>
@@ -309,9 +333,10 @@ function eventView(root, code) {
       $('#actions').innerHTML = `
         ${isAdmin ? `<a class="btn btn-primary" href="#/e/${esc(code)}/admin">Master control</a>` : ''}
         ${station ? `<a class="btn btn-primary" href="#/e/${esc(code)}/station">My station</a>` : ''}
+        <a class="btn" href="#/e/${esc(code)}/presenter">Presenter view</a>
         <a class="btn" href="#/e/${esc(code)}/stage">Big screen</a>
         <button class="btn" id="share">Share</button>
-        ${isAdmin || station ? '' : `<a class="btn btn-ghost" href="#/e/${esc(code)}/join">I’m a facilitator</a>`}`;
+        ${isAdmin || station ? '' : `<a class="btn btn-ghost" href="#/e/${esc(code)}/join">Admin / facilitator sign-in</a>`}`;
       $('#share').onclick = () => shareDialog(code, ev.name);
     },
     tick(view, live) {
@@ -350,6 +375,7 @@ const routes = [
   [/^#\/e\/([A-Za-z0-9]+)\/admin(?:\/([a-z]+))?$/, (root, code, tab) => adminView(root, normCode(code), tab)],
   [/^#\/e\/([A-Za-z0-9]+)\/station$/, (root, code) => stationView(root, normCode(code))],
   [/^#\/e\/([A-Za-z0-9]+)\/stage$/, (root, code) => stageView(root, normCode(code))],
+  [/^#\/e\/([A-Za-z0-9]+)\/presenter$/, (root, code) => presenterView(root, normCode(code))],
 ];
 
 let cleanup = null;
@@ -371,7 +397,14 @@ function route() {
     root.className = 'view';
     app.replaceChildren(root);
     window.scrollTo(0, 0);
-    cleanup = view(root, ...m.slice(1)) || null;
+    if (needsInstall(hash)) {
+      // On a phone, in the browser: show how to install it, first.
+      setHeader({ title: 'Event Timer' });
+      setPill('');
+      cleanup = installView(root, hash, route);
+    } else {
+      cleanup = view(root, ...m.slice(1)) || null;
+    }
     app.focus({ preventScroll: true });
     return;
   }
@@ -381,8 +414,31 @@ function route() {
 window.addEventListener('hashchange', route);
 route();
 
+// Keeping installed copies up to date. Every file is fetched fresh whenever
+// there is signal (see sw.js), and the app looks for a newer version each
+// time it is opened or brought back to the front. When one has arrived it
+// switches over: at once if the screen is not showing, otherwise after a tap
+// on "Update now", so nobody loses what they are typing.
 if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('nosw')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    setInterval(check, 30 * 60_000);
+  }).catch(() => {});
+
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  const reload = () => { if (!reloading) { reloading = true; location.reload(); } };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // the very first install: nothing old to replace
+    if (document.visibilityState === 'hidden') { reload(); return; }
+    const bar = document.getElementById('updateBar');
+    if (bar) {
+      bar.hidden = false;
+      bar.querySelector('button').onclick = reload;
+    }
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') reload(); });
+  });
 }
 // Exposed for the end-to-end tests and for curious officers in the console.
 window.eventTimer = { liveEvent, vibrate };
