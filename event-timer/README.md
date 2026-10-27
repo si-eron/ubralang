@@ -95,9 +95,18 @@ many are open, filling, full and closed (tap a count to see only those).
 
 ## Staying in sync
 
-- Every open screen checks with the server every 2.5 seconds (every 15 seconds
-  while the screen is off or the app is in the background). When nothing has
-  changed the answer is a few bytes.
+- **Live push.** The moment anything changes (Next, Hold, a station going
+  Full house), the database sends the new state to every open screen over a
+  live connection (Supabase Realtime, free). In the tests, four phones all
+  showed the change within about 70 ms; over the internet expect a fraction of
+  a second. Deleting an event is pushed too.
+- **Checking as a safety net**, the task tracker's way, only faster: every 10
+  seconds while the live connection is up, every 2 seconds without it or while
+  something is waiting to upload, every 15 seconds in the background, and at
+  once when the app comes back to the front, the signal returns, or the live
+  connection reconnects. When nothing has changed the answer is 55 bytes.
+- Supabase Free allows 200 live connections at once. Phones beyond that simply
+  fall back to checking every 2 seconds.
 - Countdowns run on the **server's clock**, not the phone's. Each answer
   carries the server time, and each phone works out how far off its own clock
   is. A phone whose clock is ten minutes wrong still shows the same seconds as

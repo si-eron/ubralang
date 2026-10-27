@@ -17,6 +17,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { WebSocketServer } = require('ws');
 
 const ROOT = path.join(__dirname, '..');
 const TYPES = {
@@ -112,7 +113,66 @@ function createServer({ pool, latencyMs = 0, offline = { value: false } }) {
   });
 }
 
-module.exports = { createServer, prepareDatabase };
+// Supabase Realtime, as far as this app uses it: the Phoenix websocket at
+// /realtime/v1/websocket, joining public "realtime:et:<code>" topics, and
+// broadcasts. The database's NOTIFY (see et_publish in schema.sql) becomes
+// the same "state" broadcast Supabase would send, with the full snapshot.
+async function attachRealtime(server, pool, offline = { value: false }) {
+  const wss = new WebSocketServer({ server, path: '/realtime/v1/websocket' });
+  const topics = new Map(); // topic -> Set(ws)
+  const send = (ws, msg) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); };
+
+  wss.on('connection', (ws) => {
+    if (offline.value) { ws.terminate(); return; }
+    ws.joined = new Set();
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+      if (msg.event === 'heartbeat') {
+        send(ws, { topic: 'phoenix', event: 'phx_reply', payload: { status: 'ok', response: {} }, ref: msg.ref });
+      } else if (msg.event === 'phx_join') {
+        if (!topics.has(msg.topic)) topics.set(msg.topic, new Set());
+        topics.get(msg.topic).add(ws);
+        ws.joined.add(msg.topic);
+        send(ws, { topic: msg.topic, event: 'phx_reply', payload: { status: 'ok', response: {} }, ref: msg.ref, join_ref: msg.join_ref });
+      } else if (msg.event === 'phx_leave') {
+        topics.get(msg.topic)?.delete(ws);
+        ws.joined.delete(msg.topic);
+      }
+    });
+    ws.on('close', () => { for (const t of ws.joined) topics.get(t)?.delete(ws); });
+  });
+
+  const listener = await pool.connect();
+  await listener.query('LISTEN et_broadcast');
+  listener.on('notification', async (n) => {
+    let note;
+    try { note = JSON.parse(n.payload); } catch { return; }
+    const topic = `realtime:et:${note.code}`;
+    const subs = topics.get(topic);
+    if (!subs || !subs.size) return;
+    if (note.deleted) {
+      for (const ws of subs) send(ws, { topic, event: 'broadcast', payload: { type: 'broadcast', event: 'state', payload: { deleted: true } }, ref: null });
+      return;
+    }
+    const r = await pool.query('select public.et_state($1, 0) as s', [note.code]).catch(() => null);
+    if (!r) return;
+    const payload = { type: 'broadcast', event: 'state', payload: { rev: note.rev, snapshot: r.rows[0].s } };
+    for (const ws of subs) send(ws, { topic, event: 'broadcast', payload, ref: null });
+  });
+
+  return {
+    dropAll() { for (const ws of wss.clients) ws.terminate(); },
+    async close() {
+      for (const ws of wss.clients) ws.terminate();
+      wss.close();
+      await listener.query('UNLISTEN et_broadcast').catch(() => {});
+      listener.release();
+    },
+  };
+}
+
+module.exports = { createServer, prepareDatabase, attachRealtime };
 
 if (require.main === module) {
   const pool = new Pool({
@@ -121,9 +181,10 @@ if (require.main === module) {
   const port = Number(process.env.PORT) || 4400;
   prepareDatabase(pool, process.env.LOAD_SCHEMA === '1')
     .then(() => {
-      createServer({ pool, latencyMs: Number(process.env.LATENCY_MS) || 0 }).listen(port, () => {
+      const server = createServer({ pool, latencyMs: Number(process.env.LATENCY_MS) || 0 });
+      return attachRealtime(server, pool).then(() => server.listen(port, () => {
         console.log(`Event Time Tracker on http://localhost:${port}/?backend=local`);
-      });
+      }));
     })
     .catch((err) => { console.error(err.message); process.exit(1); });
 }
