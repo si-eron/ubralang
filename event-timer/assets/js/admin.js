@@ -3,7 +3,7 @@ import { liveEvent } from './sync.js';
 import { esc, $, $$, toast, prettyCode, confirmDialog, copyText, keepAwake, qrSvg } from './ui.js';
 import { setHeader, mountEvent, errorText, announce, linksHtml, goLink } from './shell.js';
 import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from './components.js';
-import { fmtSpan, fmtClock, minutesToSeconds, parseProgramLine, effective } from './time.js';
+import { fmtSpan, fmtClock, fmtDuration, minutesToSeconds, parseProgramLine, effective } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
 // What a station runs through, unless the admin types something else.
@@ -13,6 +13,7 @@ export const DEFAULT_STEPS = ['Students entering', 'Introduction of guest speake
 
 const TABS = [
   ['run', 'Run'],
+  ['notes', 'Notes'],
   ['program', 'Program'],
   ['stations', 'Stations'],
   ['share', 'Codes & links'],
@@ -172,6 +173,7 @@ export function adminView(root, code, initialTab) {
         ${ev.message ? `<p class="field-help">Showing now: “${esc(ev.message)}” <button type="button" class="btn btn-small btn-ghost" data-act="clearmsg">Clear</button></p>` : ''}
       </form>
       ${running ? '<button class="btn btn-ghost btn-small end-btn" data-act="end">End program now</button>' : ''}
+      <button class="btn btn-block" type="button" data-tab="notes">✉ Send a note to the stations or everyone</button>
       <p class="kbd-help muted">On a keyboard: → Next · ← Back · H Hold/Resume</p>`;
   }
 
@@ -203,6 +205,8 @@ export function adminView(root, code, initialTab) {
         setTimeout(() => markStationsDirty(true), 0);
       }
       drawStationsEditor(view);
+    } else if (tab === 'notes') {
+      drawNotes(view);
     } else if (tab === 'share') {
       drawShare(view);
     } else if (tab === 'settings') {
@@ -418,6 +422,79 @@ export function adminView(root, code, initialTab) {
     }
   }
 
+  // -------------------------------------------------------- notes
+
+  const QUICK_NOTES = ['Please wrap up your sessions', 'Please let all students exit'];
+
+  function drawNotes(view) {
+    // The form is drawn once and keeps what is being typed; only the list of
+    // sent notes (with its confirmations) refreshes as they come in.
+    if (!$('#noteForm')) {
+      const stationsOn = view.event.stations_enabled && view.stations.length;
+      $('#panel').innerHTML = `
+        <h2 class="panel-title">Send a note</h2>
+        <p class="muted panel-help">It covers the whole screen in big letters until each person taps “I’ve read it”. You see below who has.</p>
+        <form id="noteForm" class="form note-form" autocomplete="off">
+          <div class="row">${QUICK_NOTES.map((q) => `<button type="button" class="btn btn-small" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+          <label class="field"><span>The note</span>
+            <textarea name="text" rows="2" maxlength="200" required placeholder="Type a note, or tap one above"></textarea></label>
+          <fieldset class="field">
+            <legend>Send to</legend>
+            <label class="radio"><input type="radio" name="audience" value="everyone" checked> Everyone (all phones and the presenter)</label>
+            ${stationsOn ? `<label class="radio"><input type="radio" name="audience" value="stations"> Stations only</label>
+            <div class="note-stations" id="noteStations" hidden>
+              ${view.stations.map((st) => `<label class="radio"><input type="checkbox" name="station" value="${esc(st.id)}" checked> ${esc(st.name)}</label>`).join('')}
+            </div>` : ''}
+          </fieldset>
+          <fieldset class="field">
+            <legend>When</legend>
+            <label class="radio"><input type="radio" name="when" value="now" checked> Now</label>
+            <label class="radio"><input type="radio" name="when" value="later"> At <input type="time" name="at" aria-label="Time to show the note"></label>
+          </fieldset>
+          <label class="field"><span>Countdown on the note <em>(optional)</em></span>
+            <select name="minutes">
+              <option value="0">No countdown</option>
+              ${[1, 2, 3, 5, 10, 15, 20, 30].map((m) => `<option value="${m}"${m === 5 ? '' : ''}>${m} minute${m > 1 ? 's' : ''}</option>`).join('')}
+            </select></label>
+          <button class="btn btn-primary btn-block" type="submit">Send note</button>
+        </form>
+        <h2 class="panel-title">Sent notes</h2>
+        <div id="noteList"></div>`;
+    }
+    $('#noteList').innerHTML = noteListHtml(view);
+    lastPanelAt = Date.now();
+  }
+
+  function noteListHtml(view) {
+    const notes = view.notices || [];
+    if (!notes.length) return '<p class="empty">No notes sent yet.</p>';
+    const now = live.now();
+    const name = (id) => view.stations.find((st) => st.id === id)?.name || 'A station';
+    return `<ul class="note-list">${notes.map((n) => {
+      const targets = n.audience === 'everyone' || !n.station_ids ? view.stations : view.stations.filter((st) => n.station_ids.includes(st.id));
+      const stationsGet = view.event.stations_enabled ? targets : [];
+      const stationAcks = new Map(n.acks.filter((a) => a.station_id).map((a) => [a.station_id, a]));
+      const others = n.ack_count - n.acks.filter((a) => a.station_id).length;
+      const named = n.acks.filter((a) => !a.station_id && a.name).map((a) => a.name);
+      const scheduled = n.show_at > now;
+      const left = n.ends_at != null ? n.ends_at - now : null;
+      const to = n.audience === 'everyone' ? 'To everyone'
+        : n.station_ids ? `To ${n.station_ids.map(name).join(', ')}` : 'To all stations';
+      return `<li class="note-item">
+        <p class="note-text">“${esc(n.text)}”</p>
+        <p class="muted note-meta">${esc(to)} · ${scheduled ? `<span class="chip chip-warn">Shows at ${esc(fmtClock(n.show_at))}</span>` : `sent ${esc(fmtClock(n.show_at))}`}
+          ${left != null ? ` · <span class="chip chip-${left > 60_000 ? 'ok' : left > 0 ? 'warn' : 'bad'}">${left > 0 ? `${esc(fmtDuration(left))} left` : 'Countdown over'}</span>` : ''}</p>
+        ${stationsGet.length ? `<ul class="note-acks">${stationsGet.map((st) => {
+          const a = stationAcks.get(st.id);
+          return `<li class="${a ? 'acked' : 'waiting'}">${a ? '✓' : '…'} ${esc(st.name)}${a ? ` <span class="muted">${esc(fmtClock(a.at))}</span>` : ' <span class="muted">waiting</span>'}</li>`;
+        }).join('')}</ul>` : ''}
+        <p class="note-others">${n.audience === 'everyone' || !stationsGet.length
+          ? `<strong>${others}</strong> ${stationsGet.length ? 'other ' : ''}phone${others === 1 ? '' : 's'} confirmed${named.length ? `: ${esc(named.join(', '))}` : ''}` : ''}</p>
+        <button class="btn btn-small btn-ghost" data-clearnote="${esc(n.id)}" type="button">Clear</button>
+      </li>`;
+    }).join('')}</ul>`;
+  }
+
   function toLocalInput(ms) {
     if (ms == null) return '';
     const d = new Date(ms);
@@ -582,6 +659,22 @@ export function adminView(root, code, initialTab) {
       return;
     }
 
+    // Notes
+    const quick = t.closest('[data-quick]');
+    if (quick) {
+      const box = $('#noteForm textarea[name=text]');
+      box.value = quick.dataset.quick;
+      box.focus();
+      return;
+    }
+    const clr = t.closest('[data-clearnote]');
+    if (clr) {
+      if (await confirmDialog({ title: 'Clear this note?', body: 'It disappears from every screen, and its countdown stops.', confirm: 'Clear' })) {
+        if (await edit('notice_clear', { id: clr.dataset.clearnote })) drawPanel(live.view());
+      }
+      return;
+    }
+
     // Share & settings
     if (t.closest('[data-copy]')) copyText(t.closest('[data-copy]').dataset.copy, 'Link copied');
     if (t.id === 'newKey' && await confirmDialog({ title: 'Make a new admin key?', body: 'Every other device is signed out of master control. Write the new key down.', confirm: 'Make new key' })) {
@@ -615,6 +708,14 @@ export function adminView(root, code, initialTab) {
   });
 
   root.addEventListener('change', async (e) => {
+    if (e.target.name === 'audience') {
+      const box = $('#noteStations');
+      if (box) box.hidden = e.target.value !== 'stations';
+    }
+    if (e.target.name === 'at' && e.target.value) {
+      const later = $('#noteForm input[name=when][value=later]');
+      if (later) later.checked = true;
+    }
     if (e.target.id === 'stationsOn') {
       const on = e.target.checked;
       const res = await edit('event', { stations_enabled: on });
@@ -625,6 +726,37 @@ export function adminView(root, code, initialTab) {
 
   root.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (e.target.id === 'noteForm') {
+      const f = e.target;
+      const text = f.text.value.trim();
+      if (!text) { toast('Type the note first.', 'warn'); return; }
+      const audience = f.querySelector('input[name=audience]:checked')?.value || 'everyone';
+      const args = { text, audience, minutes: Number(f.minutes.value) || 0 };
+      if (audience === 'stations') {
+        const boxes = [...f.querySelectorAll('input[name=station]')];
+        const picked = boxes.filter((b) => b.checked).map((b) => b.value);
+        if (!picked.length) { toast('Choose at least one station.', 'warn'); return; }
+        if (picked.length < boxes.length) args.station_ids = picked;
+      }
+      if (f.querySelector('input[name=when]:checked')?.value === 'later') {
+        if (!f.at.value) { toast('Choose the time to show it.', 'warn'); return; }
+        const [h, m] = f.at.value.split(':').map(Number);
+        const at = new Date();
+        at.setHours(h, m, 0, 0);
+        if (at.getTime() < Date.now() - 60_000) { toast('That time has passed. Choose a later time, or Now.', 'warn'); return; }
+        args.show_at = at.getTime();
+      }
+      const btn = f.querySelector('button[type=submit]');
+      btn.disabled = true;
+      const res = await edit('notice', args);
+      btn.disabled = false;
+      if (res) {
+        f.text.value = '';
+        toast(args.show_at ? `Note scheduled for ${fmtClock(args.show_at)}.` : 'Note sent. It is on their screens now.', 'ok');
+        $('#noteList').innerHTML = noteListHtml(live.view());
+      }
+      return;
+    }
     if (e.target.id === 'announceForm') {
       const text = $('#announceText').value.trim();
       if (!text) return;
@@ -681,6 +813,7 @@ export function adminView(root, code, initialTab) {
         || (tab === 'settings' && $('#settingsForm')?.contains(document.activeElement))
         || (tab === 'program' && $('#editList')?.contains(document.activeElement))
         || (tab === 'stations' && $('#stationList')?.contains(document.activeElement));
+      if (tab === 'notes' && $('#noteForm')) { $('#noteList').innerHTML = noteListHtml(view); return; }
       // Codes & links and Settings hold nothing live: redraw them only when the
       // stations change, so a tap never lands on a button being replaced.
       const stationSig = view.stations.map((st) => `${st.id}:${st.name}`).join('|') + view.event.stations_enabled;
@@ -699,6 +832,7 @@ export function adminView(root, code, initialTab) {
       }
       if (view.event.status !== 'countdown') countdownDone = false;
       if (tab === 'run' && Date.now() - lastPanelAt > 10000) drawPanel(view);
+      if (tab === 'notes' && $('#noteList') && Date.now() - lastPanelAt > 1000) { $('#noteList').innerHTML = noteListHtml(view); lastPanelAt = Date.now(); }
     },
   });
 
