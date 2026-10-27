@@ -185,6 +185,7 @@ test('the clock turns orange when time is almost up and red when it is over', { 
 
   await admin('next', { from: 0 });
   await p.page.waitForSelector('.hero-warn .hero-caption:has-text("Almost time")', { timeout: 6000 });
+  await p.page.waitForTimeout(600); // the card fades between colours over 0.4 s
   const orange = await p.page.$eval('.hero', (el) => getComputedStyle(el).backgroundColor);
   assert.equal(orange, 'rgb(194, 65, 12)');
 
@@ -292,7 +293,7 @@ test('Station Mode can be switched on after the event is made, from the Run tab'
   await p.page.waitForSelector('#stationsOnRun');
   await p.page.click('#stationsOnRun');
   await p.page.waitForSelector('#stationList .edit-row');
-  await p.page.click('#stationsSaveBtn');
+  // No Save button to press: the three new stations save by themselves.
   await p.page.waitForSelector('.codes li');
   const st = await stack.rpc('et_state', { p_code: made.code, p_since: 0 });
   assert.equal(st.event.stations_enabled, true);
@@ -398,4 +399,33 @@ test('Present opens the presenter view in its own window; this tab keeps control
   await Promise.all([win.waitForEvent('close'), win.click('#pvExit')]);
   assert.deepEqual(p.page.errors, []);
   await p.ctx.close();
+});
+
+test('station edits save by themselves and reach other devices within a second or two', { skip }, async () => {
+  const made = await stack.rpc('et_create', { p_name: 'Autosave', p_venue: '' });
+  await stack.rpc('et_admin', { p_code: made.code, p_key: made.key, p_action: 'event', p_args: { stations_enabled: true } });
+  const adminPhone = await phone();
+  await adminPhone.page.goto(url(`#/go/${made.key}`));
+  await adminPhone.page.waitForSelector('#controls');
+  await adminPhone.page.click('[data-tab=stations]');
+  await adminPhone.page.waitForSelector('.codes li'); // the starter stations, already saved
+
+  const viewer = await phone();
+  await viewer.page.goto(url(`#/e/${made.code}`));
+  await viewer.page.click('[data-tab=stations]');
+  await viewer.page.waitForSelector('.station');
+
+  // Rename a station by typing; nobody presses Save.
+  const first = adminPhone.page.locator('#stationList .edit-row').first().locator('input[data-f=name]');
+  await first.fill('Faith Corner');
+  const t0 = Date.now();
+  await viewer.page.waitForSelector('.station h3:has-text("Faith Corner")', { timeout: 5000 });
+  assert.ok(Date.now() - t0 < 2500, `rename reached the other device after ${Date.now() - t0} ms`);
+
+  // Add one more: it appears on the other device too.
+  await adminPhone.page.click('#addStation');
+  await viewer.page.waitForFunction(() => document.querySelectorAll('.station').length === 4, null, { timeout: 5000 });
+  assert.deepEqual([...adminPhone.page.errors, ...viewer.page.errors], []);
+  await adminPhone.ctx.close();
+  await viewer.ctx.close();
 });

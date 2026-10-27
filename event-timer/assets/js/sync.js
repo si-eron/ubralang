@@ -20,7 +20,7 @@ import { backendUrl, backendKey } from './config.js';
 import { realtime } from './realtime.js';
 
 const POLL_VISIBLE_MS = 2000;   // no live push: check this often
-const POLL_LIVE_MS = 10000;     // live push connected: checking is only a safety net
+const POLL_LIVE_MS = 8000;      // live push connected and proven: checking is only a safety net
 const POLL_HIDDEN_MS = 15000;   // screen off or app in the background
 const STALE_AFTER_MS = 12000;   // no news for this long → say "Offline"
 const STALE_LIVE_MS = 30000;    // …or this long while live push is connected
@@ -109,7 +109,13 @@ export class LiveEvent {
     this.onVisible = () => this.pollSoon();
     this.onOnline = () => this.pollSoon();
     this.pushLive = false;
+    // Connected is not the same as working. Push is trusted (and checking
+    // slows down) only once a pushed change has actually arrived, and stops
+    // being trusted the moment a check finds a change that push missed.
+    this.pushTrusted = false;
+    this.lowerRevSeen = 0;
     this.unsubPush = null;
+    this.onSyncNow = () => { realtime().ensure(); this.pollSoon(0); };
   }
 
   // Live push: the whole new state, the moment it is saved.
@@ -117,6 +123,7 @@ export class LiveEvent {
     if (msg && msg.deleted) { this.pollSoon(0); return; } // ask, and learn it is gone
     if (!msg || typeof msg.rev !== 'number') return;
     this.lastOkAt = Date.now();
+    this.pushTrusted = true;
     if (msg.rev <= this.rev) return;
     if (msg.snapshot && msg.snapshot.event) {
       this.accept(msg.snapshot);
@@ -144,6 +151,7 @@ export class LiveEvent {
     document.addEventListener('visibilitychange', this.onVisible);
     window.addEventListener('online', this.onOnline);
     window.addEventListener('focus', this.onVisible);
+    window.addEventListener('et-sync-now', this.onSyncNow);
     this.unsubPush = realtime().subscribe(`et:${this.code}`, (m) => this.onPush(m), (j) => this.onPushStatus(j));
     this.pollSoon();
     return this;
@@ -155,9 +163,11 @@ export class LiveEvent {
     document.removeEventListener('visibilitychange', this.onVisible);
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('focus', this.onVisible);
+    window.removeEventListener('et-sync-now', this.onSyncNow);
     this.unsubPush?.();
     this.unsubPush = null;
     this.pushLive = false;
+    this.pushTrusted = false;
   }
 
   subscribe(fn) {
@@ -207,7 +217,12 @@ export class LiveEvent {
       } else {
         this.notFound = false;
         this.lastOkAt = Date.now();
-        if (res.changed) this.accept(res);
+        if (res.changed) {
+          // A change from someone else that live push did not bring: push is
+          // not working for this phone, so check every 2 seconds instead.
+          if (this.pushLive && res.rev > this.rev && this.snapshot) this.pushTrusted = false;
+          this.accept(res, { fromCheck: true });
+        }
       }
     } catch (err) {
       this.lastError = err.code || 'offline';
@@ -219,7 +234,7 @@ export class LiveEvent {
         // A little jitter so a room full of phones does not ask in lockstep.
         // Something waiting to upload, or no live link: every 2 seconds.
         const waiting = this.outbox().length > 0 || this.lastError === 'offline';
-        const base = hidden ? POLL_HIDDEN_MS : this.pushLive && !waiting ? POLL_LIVE_MS : POLL_VISIBLE_MS;
+        const base = hidden ? POLL_HIDDEN_MS : this.pushLive && this.pushTrusted && !waiting ? POLL_LIVE_MS : POLL_VISIBLE_MS;
         this.pollSoon(base + Math.random() * 400);
       }
     }
@@ -235,9 +250,15 @@ export class LiveEvent {
     storage.set('et.clockOffset', this.offset);
   }
 
-  accept(snapshot) {
+  accept(snapshot, { fromCheck = false } = {}) {
     if (!snapshot || !snapshot.event) return;
-    if (this.snapshot && snapshot.rev < this.rev) return; // an older answer arriving late
+    if (this.snapshot && snapshot.rev < this.rev) {
+      // Usually an older answer arriving late: ignore it. But if the server
+      // keeps saying a lower number (its data was reset or restored), the
+      // server is right and this phone's copy is what is out of date.
+      if (!fromCheck || ++this.lowerRevSeen < 2) return;
+    }
+    this.lowerRevSeen = 0;
     const clean = { ...snapshot };
     delete clean.key;
     delete clean.codes;
