@@ -155,7 +155,27 @@ export function phaseSteps(station) {
   }).join('')}</ol>`;
 }
 
-export function stationCard(station, now, { mine = false } = {}) {
+// How many have this station's controls open right now (null: not known yet).
+function onlineChip(n) {
+  if (n == null) return '';
+  return n > 0
+    ? `<span class="online online-on"><span class="online-dot" aria-hidden="true"></span>${n} online</span>`
+    : '<span class="online online-off"><span class="online-dot" aria-hidden="true"></span>No one online</span>';
+}
+
+// "Online now: 14 in Facilitator view · 1 presenting · 1 in Master control"
+export function onlineHtml(view) {
+  const p = view.presence;
+  if (!p) return '';
+  const atStations = Object.values(p.stations || {}).reduce((a, b) => a + b, 0);
+  const parts = [`<strong>${p.viewer}</strong> in Facilitator view`];
+  if (view.event.stations_enabled && view.stations.length) parts.push(`<strong>${atStations}</strong> at stations`);
+  if (p.presenter) parts.push(`<strong>${p.presenter}</strong> presenting`);
+  if (p.admin) parts.push(`<strong>${p.admin}</strong> in Master control`);
+  return `<p class="online-now" role="status"><span class="online-dot" aria-hidden="true"></span>Online now: ${parts.join(' · ')}</p>`;
+}
+
+export function stationCard(station, now, { mine = false, online = null } = {}) {
   const phase = station.phase_index >= 0 ? station.phases[station.phase_index] : 'Not started';
   const since = station.phase_index >= 0 ? stationSince(station, now) : null;
   return `<article class="station station-${station.crowd}${mine ? ' station-mine' : ''}" data-station="${esc(station.id)}">
@@ -169,6 +189,7 @@ export function stationCard(station, now, { mine = false } = {}) {
     <p class="station-phase"><strong>${esc(phase)}</strong>${since ? ` <span class="muted">· for ${esc(since)}</span>` : ''}</p>
     ${phaseSteps(station)}
     ${station.note ? `<p class="station-note">“${esc(station.note)}”</p>` : ''}
+    ${onlineChip(online)}
     <p class="station-updated muted">${station.pending ? 'Saved on this phone · uploading' : station.updated_at ? `Updated ${ago(station.updated_at, now)} by ${station.updated_by ? esc(station.updated_by) : 'a facilitator'}` : 'No update from the facilitators yet'}</p>
   </article>`;
 }
@@ -187,8 +208,9 @@ export function stationsBoardHtml(view, now, { mine = null, filter = null } = {}
     return '<p class="empty">This event is not using stations.</p>';
   }
   const list = view.stations.filter((s) => !filter || s.crowd === filter);
-  return `${stationsSummary(view.stations)}
-    <div class="stations">${list.map((s) => stationCard(s, now, { mine: s.id === mine })).join('') || '<p class="empty">No station matches.</p>'}</div>`;
+  const online = (id) => (view.presence ? view.presence.stations?.[id] || 0 : null);
+  return `${onlineHtml(view)}${stationsSummary(view.stations)}
+    <div class="stations">${list.map((s) => stationCard(s, now, { mine: s.id === mine, online: online(s.id) })).join('') || '<p class="empty">No station matches.</p>'}</div>`;
 }
 
 export function logHtml(view) {

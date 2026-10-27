@@ -1,6 +1,7 @@
 // Shared by every screen: the header, the sync pill, opening an event.
 import { liveEvent } from './sync.js';
 import { createNotices } from './notices.js';
+import { deviceId } from './store.js';
 import { esc, $, prettyCode, syncPill, copyText, qrSvg } from './ui.js';
 
 // ------------------------------------------------------------- header
@@ -49,8 +50,10 @@ export function errorText(code, fallback) {
 
 // Opens an event, keeps it in sync, and calls render() whenever it changes and
 // tick() four times a second. Returns the clean-up.
-export function mountEvent(code, { render, tick, onNotFound, notices = null }) {
+export function mountEvent(code, { render, tick, onNotFound, notices = null, presence = null }) {
   const live = liveEvent(code).start();
+  // Counted as online while this screen is open (see et_here).
+  if (presence) live.startPresence({ ...presence, device: deviceId() });
   // Notes from Master control pop up on top of this screen (if it takes them).
   const noteLayer = notices ? createNotices(code, live, notices) : null;
   let lastKey = null;
@@ -87,6 +90,7 @@ export function mountEvent(code, { render, tick, onNotFound, notices = null }) {
     unsub();
     clearInterval(ticker);
     noteLayer?.destroy();
+    live.stopPresence();
     live.stop();
   };
 }

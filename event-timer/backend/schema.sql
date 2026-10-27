@@ -8,7 +8,7 @@
 -- How it is protected. The web page ships with Supabase's publishable key,
 -- which anyone can read. So the tables themselves are closed: row-level
 -- security is on and there are no policies, which means the publishable key
--- cannot read or write a single row directly. Everything goes through the seven
+-- cannot read or write a single row directly. Everything goes through the eight
 -- functions at the bottom of this file, and each one checks the code it is
 -- given:
 --
@@ -19,6 +19,7 @@
 --   et_role     either                          "which one is this code?"
 --   et_enter    any code on its own             "where does this code lead?"
 --   et_ack      anyone with the event code      "I've read this note"
+--   et_here     anyone with the event code      "I have the app open" (who is online)
 --
 -- Codes are drawn from 31 characters that cannot be confused when read aloud
 -- or off a screen (no 0/O, 1/I/L). An admin key is 8 of them, about 850
@@ -125,6 +126,18 @@ create table if not exists et_notice_acks (
 
 create index if not exists et_notices_event on et_notices (event_id, created_at desc);
 
+-- Who has the app open right now. Each open screen says "I'm here" every
+-- 15 seconds while it is on screen, and "I've left" when it is closed or put
+-- in the background. Anyone silent for 40 seconds no longer counts.
+create table if not exists et_presence (
+  event_id    uuid not null references et_events(id) on delete cascade,
+  device      text not null,
+  role        text not null check (role in ('viewer', 'station', 'presenter', 'admin')),
+  station_id  uuid,
+  seen_at     timestamptz not null default now(),
+  primary key (event_id, device)
+);
+
 create table if not exists et_log (
   id        bigserial primary key,
   event_id  uuid not null references et_events(id) on delete cascade,
@@ -151,15 +164,16 @@ alter table et_stations enable row level security;
 alter table et_log      enable row level security;
 alter table et_notices  enable row level security;
 alter table et_notice_acks enable row level security;
+alter table et_presence enable row level security;
 
-revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from public;
+revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks, et_presence from public;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
-    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from anon;
+    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks, et_presence from anon;
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
-    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks from authenticated;
+    revoke all on et_events, et_segments, et_stations, et_log, et_notices, et_notice_acks, et_presence from authenticated;
   end if;
 end $$;
 
@@ -967,10 +981,98 @@ begin
   return et_snapshot(e.id);
 end $$;
 
+-- ----------------------------------------------------------------- et_here
+
+-- How many are online: per station, in the Facilitator view, presenting, and
+-- in Master control.
+create or replace function et_presence_counts(p_event uuid) returns jsonb
+language sql stable as $$
+  select jsonb_build_object(
+    'viewer', count(*) filter (where role = 'viewer'),
+    'presenter', count(*) filter (where role = 'presenter'),
+    'admin', count(*) filter (where role = 'admin'),
+    'stations', coalesce((
+      select jsonb_object_agg(station_id, n) from (
+        select station_id, count(*) as n from et_presence
+        where event_id = p_event and role = 'station' and seen_at > now() - interval '40 seconds'
+        group by station_id) x), '{}'::jsonb),
+    'now', et_ms(clock_timestamp()))
+  from et_presence
+  where event_id = p_event and seen_at > now() - interval '40 seconds'
+$$;
+
+create or replace function et_publish_presence(p_code text, p_counts jsonb) returns void
+language plpgsql as $$
+begin
+  begin
+    if to_regprocedure('realtime.send(jsonb,text,text,boolean)') is not null then
+      execute 'select realtime.send($1, $2, $3, false)'
+        using jsonb_build_object('presence', p_counts), 'state', 'et:' || p_code;
+    else
+      perform pg_notify('et_broadcast', json_build_object('code', p_code, 'presence', p_counts)::text);
+    end if;
+  exception when others then
+    null;
+  end;
+end $$;
+
+-- "I'm here" (or, with p_leave, "I've left"). Answers with the counts. When
+-- someone arrives, leaves or changes screen, every open screen is told at once.
+create or replace function et_here(p_code text, p_device text, p_role text, p_key text default null, p_leave boolean default false)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = public, pg_temp
+as $$
+declare
+  e et_events;
+  v_role text := case when p_role in ('viewer', 'station', 'presenter', 'admin') then p_role else 'viewer' end;
+  v_station uuid;
+  v_dev text := left(btrim(coalesce(p_device, '')), 64);
+  v_old et_presence;
+  v_changed boolean := false;
+  v_counts jsonb;
+begin
+  select * into e from et_events where code = et_norm(p_code);
+  if not found then
+    return et_fail('not_found');
+  end if;
+  if v_dev = '' then
+    return et_fail('bad_device');
+  end if;
+  -- A role is only what its code proves.
+  if v_role = 'station' then
+    select id into v_station from et_stations where event_id = e.id and code = et_norm(p_key);
+    if v_station is null then v_role := 'viewer'; end if;
+  elsif v_role = 'admin' and et_hash(e.admin_salt, et_norm(p_key)) <> e.admin_hash then
+    v_role := 'viewer';
+  end if;
+
+  delete from et_presence where event_id = e.id and seen_at < now() - interval '10 minutes';
+  select * into v_old from et_presence where event_id = e.id and device = v_dev;
+  if p_leave then
+    delete from et_presence where event_id = e.id and device = v_dev;
+    v_changed := v_old.device is not null and v_old.seen_at > now() - interval '40 seconds';
+  else
+    insert into et_presence (event_id, device, role, station_id, seen_at)
+    values (e.id, v_dev, v_role, v_station, now())
+    on conflict (event_id, device) do update
+      set role = excluded.role, station_id = excluded.station_id, seen_at = now();
+    v_changed := v_old.device is null
+      or v_old.seen_at <= now() - interval '40 seconds'
+      or v_old.role <> v_role
+      or v_old.station_id is distinct from v_station;
+  end if;
+  v_counts := et_presence_counts(e.id);
+  if v_changed then
+    perform et_publish_presence(e.code, v_counts);
+  end if;
+  return jsonb_build_object('ok', true, 'presence', v_counts, 'now', et_ms(clock_timestamp()));
+end $$;
+
 -- ------------------------------------------------------------------ grants
 
 -- Supabase lets the publishable key run every new function by default. Take
--- that away from the helpers, then give back only the seven front doors.
+-- that away from the helpers, then give back only the eight front doors.
 do $$
 declare
   f text;
@@ -983,7 +1085,8 @@ begin
     'et_go(uuid,int,timestamptz)',
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
     'et_station(text,uuid,text,jsonb)', 'et_role(text,text)',
-    'et_new_code()', 'et_lookup(text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)'
+    'et_new_code()', 'et_lookup(text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)',
+    'et_presence_counts(uuid)', 'et_publish_presence(text,jsonb)', 'et_here(text,text,text,text,boolean)'
   ] loop
     execute format('revoke all on function %s from public', f);
     foreach r in array array['anon', 'authenticated'] loop
@@ -994,7 +1097,8 @@ begin
   end loop;
   foreach f in array array[
     'et_state(text,bigint)', 'et_create(text,text)', 'et_admin(text,text,text,jsonb)',
-    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)'
+    'et_station(text,uuid,text,jsonb)', 'et_role(text,text)', 'et_enter(text)', 'et_ack(text,uuid,text,text,text)',
+    'et_here(text,text,text,text,boolean)'
   ] loop
     foreach r in array array['anon', 'authenticated'] loop
       if exists (select 1 from pg_roles where rolname = r) then

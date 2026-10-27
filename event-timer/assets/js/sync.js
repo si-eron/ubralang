@@ -36,7 +36,7 @@ export function isConfigured() {
   return Boolean(backendUrl());
 }
 
-export async function rpc(fn, args, { timeoutMs = 10000 } = {}) {
+export async function rpc(fn, args, { timeoutMs = 10000, keepalive = false } = {}) {
   const url = backendUrl();
   if (!url) throw new BackendError('not_configured', 'This site is not connected to a database yet.');
   const ctrl = new AbortController();
@@ -52,6 +52,7 @@ export async function rpc(fn, args, { timeoutMs = 10000 } = {}) {
       },
       body: JSON.stringify(args),
       signal: ctrl.signal,
+      keepalive, // lets a last message out while the page is closing
       cache: 'no-store',
     });
   } catch {
@@ -120,6 +121,7 @@ export class LiveEvent {
 
   // Live push: the whole new state, the moment it is saved.
   onPush(msg) {
+    if (msg && msg.presence) { this.presence = msg.presence; this.emit(); return; }
     if (msg && msg.deleted) { this.pollSoon(0); return; } // ask, and learn it is gone
     if (!msg || typeof msg.rev !== 'number') return;
     this.lastOkAt = Date.now();
@@ -273,7 +275,7 @@ export class LiveEvent {
   view() {
     if (!this.snapshot) return null;
     const pending = this.outbox().filter((a) => a.fn === 'et_station');
-    if (!pending.length) return this.snapshot;
+    if (!pending.length) return this.presence ? { ...this.snapshot, presence: this.presence } : this.snapshot;
     const stations = this.snapshot.stations.map((s) => {
       let out = s;
       for (const a of pending) {
@@ -292,7 +294,47 @@ export class LiveEvent {
       }
       return out;
     });
-    return { ...this.snapshot, stations };
+    return { ...this.snapshot, stations, presence: this.presence };
+  }
+
+  // ---------------------------------------------------------- who is online
+
+  // While this screen is open and on screen, say "I'm here" every 15 seconds.
+  // Closed or put in the background: say "I've left" at once. Each answer, and
+  // each live push, brings the counts for everyone.
+  startPresence({ role, key = null, device }) {
+    // Moving to another screen of this event: no "left", just the new role.
+    clearTimeout(this.pendingLeave);
+    this.stopPresence(false);
+    this.here = { role, key, device };
+    const beat = () => {
+      if (!this.here || document.visibilityState !== 'visible') return;
+      rpc('et_here', { p_code: this.code, p_device: device, p_role: role, p_key: key })
+        .then((res) => { if (res && res.ok && res.presence) { this.presence = res.presence; this.emit(); } })
+        .catch(() => {});
+    };
+    const leave = () => {
+      if (!this.here) return;
+      rpc('et_here', { p_code: this.code, p_device: device, p_role: role, p_key: key, p_leave: true }, { keepalive: true })
+        .catch(() => {});
+    };
+    this.onHereVisibility = () => (document.visibilityState === 'visible' ? beat() : leave());
+    this.onHereHide = () => leave();
+    this.hereLeave = leave;
+    document.addEventListener('visibilitychange', this.onHereVisibility);
+    window.addEventListener('pagehide', this.onHereHide);
+    this.hereTimer = setInterval(beat, 15000);
+    beat();
+  }
+
+  stopPresence(sendLeave = true) {
+    if (!this.here) return;
+    // Leave a moment later, unless another screen of this event opens first.
+    if (sendLeave) { const leave = this.hereLeave; this.pendingLeave = setTimeout(() => leave?.(), 400); }
+    clearInterval(this.hereTimer);
+    document.removeEventListener('visibilitychange', this.onHereVisibility);
+    window.removeEventListener('pagehide', this.onHereHide);
+    this.here = null;
   }
 
   // ---------------------------------------------------------- outbox

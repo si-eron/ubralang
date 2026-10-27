@@ -325,6 +325,7 @@ function eventView(root, code) {
 
   const cleanup = mountEvent(code, {
     notices: { role: 'viewer' },
+    presence: { role: 'viewer' },
     onNotFound() {
       setHeader({ title: 'Not found', back: '#/' });
       root.innerHTML = `<div class="page"><div class="card"><h1 class="card-title">No event with code ${esc(prettyCode(code))}</h1>

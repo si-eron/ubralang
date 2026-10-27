@@ -2,7 +2,7 @@
 import { liveEvent } from './sync.js';
 import { esc, $, $$, toast, prettyCode, confirmDialog, copyText, keepAwake, qrSvg } from './ui.js';
 import { setHeader, mountEvent, errorText, announce, linksHtml, goLink } from './shell.js';
-import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml } from './components.js';
+import { heroHtml, messageHtml, programHtml, stationsBoardHtml, logHtml, onlineHtml } from './components.js';
 import { fmtSpan, fmtClock, fmtDuration, minutesToSeconds, parseProgramLine, effective } from './time.js';
 import { adminKey, setAdminKey, forgetEvent, rememberEvent } from './store.js';
 
@@ -191,7 +191,7 @@ export function adminView(root, code, initialTab) {
         <h2 class="panel-title">Run of show</h2>
         <p class="muted panel-help">Go jumps straight to a segment.</p>
         ${programHtml(view, now, { admin: true })}
-        ${view.event.stations_enabled && view.stations.length ? `<h2 class="panel-title">Stations</h2>${stationsBoardHtml(view, now)}` : ''}
+        ${view.event.stations_enabled && view.stations.length ? `<h2 class="panel-title">Stations</h2>${stationsBoardHtml(view, now)}` : onlineHtml(view)}
         ${view.event.stations_enabled ? '' : `<div class="notice notice-gold station-offer">
           <p><strong>Need stations?</strong> Turn on Station Mode any time, even with the program already running.</p>
           <button class="btn btn-small btn-primary" id="stationsOnRun" type="button">Turn on Station Mode</button></div>`}
@@ -802,6 +802,7 @@ export function adminView(root, code, initialTab) {
   document.addEventListener('keydown', onKey);
 
   const cleanup = mountEvent(code, {
+    presence: { role: 'admin', key },
     onNotFound() {
       toast('This event no longer exists.', 'bad');
       location.hash = '#/';

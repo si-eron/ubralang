@@ -134,6 +134,7 @@ export function presenterView(root, code) {
 
   const cleanup = mountEvent(code, {
     notices: { role: 'presenter' },
+    presence: { role: 'presenter' },
     onNotFound() { location.hash = `#/e/${code}`; },
     render: draw,
     tick: draw,
